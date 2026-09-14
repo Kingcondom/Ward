@@ -76,52 +76,166 @@
       <button class="ghost" data-close>✕</button>
     </header>
 
-    <div class="drawer-body">
-      <form id="patient-form" class="card">
-        <h3>ข้อมูลผู้ป่วย</h3>
-        <div class="grid">
-          <label>เตียง<input name="bed" required></label>
-          <label>ชื่อย่อ<input name="initials" required placeholder="ส.ส."></label>
-          <label>HN<input name="hn"></label>
-          <label>อายุ<input name="age" placeholder="62 ปี"></label>
-          <label>เพศ
-            <select name="sex"><option value="">–</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option></select>
-          </label>
-          <label>วันที่ Admit<input name="admitted_at" type="date"></label>
-        </div>
-        <label>Diagnosis<textarea name="diagnosis" rows="2"></textarea></label>
-        <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
-        <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
-        <div class="row">
-          <button class="primary" type="submit">บันทึกข้อมูล</button>
-          <button type="button" id="btn-discharge" class="ghost">D/C</button>
-          <button type="button" id="btn-readmit" class="ghost" hidden>กลับเข้ารักษา</button>
-          <span class="spacer"></span>
-          <button type="button" id="btn-delete" class="danger">ลบ</button>
-        </div>
-      </form>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="info">ข้อมูล</button>
+      <button class="tab" data-tab="soap">SOAP</button>
+      <button class="tab" data-tab="trend">V/S &amp; Lab</button>
+      <button class="tab" data-tab="timeline">Timeline</button>
+      <button class="tab" data-tab="import">นำเข้า</button>
+    </nav>
 
-      <section class="card">
-        <div class="row">
-          <h3>SOAP รายวัน</h3>
-          <span class="spacer"></span>
-          <button id="btn-new-note" class="primary">+ SOAP วันนี้</button>
-        </div>
-        <form id="note-form" class="note-form" hidden>
+    <div class="drawer-body">
+      <!-- ---- ข้อมูลผู้ป่วย ---- -->
+      <section class="panel" data-panel="info">
+        <form id="patient-form" class="card">
+          <h3>ข้อมูลผู้ป่วย</h3>
           <div class="grid">
-            <label>วันที่<input name="note_date" type="date" required></label>
-            <label>รอบ<input name="round" placeholder="เช้า / เย็น"></label>
+            <label>เตียง<input name="bed" required></label>
+            <label>ชื่อย่อ<input name="initials" required placeholder="ส.ส."></label>
+            <label>HN<input name="hn"></label>
+            <label>อายุ<input name="age" placeholder="62 ปี"></label>
+            <label>เพศ
+              <select name="sex"><option value="">–</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option></select>
+            </label>
+            <label>วันที่ Admit<input name="admitted_at" type="date"></label>
           </div>
-          <label>S — Subjective<textarea name="subjective" rows="2"></textarea></label>
-          <label>O — Objective<textarea name="objective" rows="3" placeholder="V/S, PE, Lab"></textarea></label>
-          <label>A — Assessment<textarea name="assessment" rows="2"></textarea></label>
-          <label>P — Plan<textarea name="plan" rows="2"></textarea></label>
+          <label>Diagnosis<textarea name="diagnosis" rows="2"></textarea></label>
+          <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
+          <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
           <div class="row">
-            <button class="primary" type="submit">บันทึก SOAP</button>
-            <button type="button" id="btn-cancel-note" class="ghost">ยกเลิก</button>
+            <button class="primary" type="submit">บันทึกข้อมูล</button>
+            <button type="button" id="btn-discharge" class="ghost">D/C</button>
+            <button type="button" id="btn-readmit" class="ghost" hidden>กลับเข้ารักษา</button>
+            <span class="spacer"></span>
+            <button type="button" id="btn-delete" class="danger">ลบ</button>
           </div>
         </form>
-        <div id="note-list" class="note-list"></div>
+      </section>
+
+      <!-- ---- SOAP ---- -->
+      <section class="panel" data-panel="soap" hidden>
+        <div class="card">
+          <div class="row">
+            <h3>SOAP รายวัน</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-note" class="primary">+ SOAP วันนี้</button>
+          </div>
+          <form id="note-form" class="note-form" hidden>
+            <div class="grid">
+              <label>วันที่<input name="note_date" type="date" required></label>
+              <label>รอบ<input name="round" placeholder="เช้า / เย็น"></label>
+            </div>
+            <label>S — Subjective<textarea name="subjective" rows="2"></textarea></label>
+            <label>O — Objective<textarea name="objective" rows="3" placeholder="V/S, PE, Lab"></textarea></label>
+            <label>A — Assessment<textarea name="assessment" rows="2"></textarea></label>
+            <label>P — Plan<textarea name="plan" rows="2"></textarea></label>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก SOAP</button>
+              <button type="button" id="btn-cancel-note" class="ghost">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="note-list" class="note-list"></div>
+        </div>
+      </section>
+
+      <!-- ---- V/S &amp; Lab ---- -->
+      <section class="panel" data-panel="trend" hidden>
+        <div class="card">
+          <div class="row">
+            <h3>Vital signs</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-vitals" class="primary">+ บันทึก V/S</button>
+          </div>
+          <form id="vitals-form" class="note-form" hidden>
+            <div class="grid">
+              <label>วันเวลา<input name="measured_at" type="datetime-local" required></label>
+              <label>BT (°C)<input name="bt" type="number" step="0.1" inputmode="decimal"></label>
+              <label>BP (SBP)<input name="sbp" type="number" inputmode="numeric"></label>
+              <label>BP (DBP)<input name="dbp" type="number" inputmode="numeric"></label>
+              <label>PR (/min)<input name="pr" type="number" inputmode="numeric"></label>
+              <label>RR (/min)<input name="rr" type="number" inputmode="numeric"></label>
+              <label>O2sat (%)<input name="o2sat" type="number" inputmode="numeric"></label>
+            </div>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก</button>
+              <button type="button" class="ghost" data-cancel="vitals-form">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="vs-charts" class="charts"></div>
+          <details id="vs-table-wrap"><summary>ดูเป็นตาราง</summary><div id="vs-table"></div></details>
+        </div>
+
+        <div class="card">
+          <div class="row">
+            <h3>Lab</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-lab" class="primary">+ บันทึก Lab</button>
+          </div>
+          <form id="lab-form" class="note-form" hidden>
+            <div class="grid">
+              <label>วันที่<input name="collected_at" type="date" required></label>
+              <label>ชื่อ Lab<input name="name" required placeholder="Cr"></label>
+              <label>ค่า<input name="value" type="number" step="any" inputmode="decimal" required></label>
+              <label>หน่วย<input name="unit" placeholder="mg/dL"></label>
+            </div>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก</button>
+              <button type="button" class="ghost" data-cancel="lab-form">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="lab-charts" class="charts"></div>
+          <details id="lab-table-wrap"><summary>ดูเป็นตาราง</summary><div id="lab-table"></div></details>
+        </div>
+      </section>
+
+      <!-- ---- Timeline ---- -->
+      <section class="panel" data-panel="timeline" hidden>
+        <div class="card">
+          <div class="row">
+            <h3>Timeline การดำเนินโรค</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-event" class="primary">+ เพิ่มเหตุการณ์</button>
+          </div>
+          <form id="event-form" class="note-form" hidden>
+            <div class="grid">
+              <label>วันที่<input name="occurred_at" type="date" required></label>
+              <label>ประเภท
+                <select name="kind">
+                  <option value="diagnosis">Diagnosis / ปัญหาใหม่</option>
+                  <option value="procedure">หัตถการ / ผ่าตัด</option>
+                  <option value="consult">Consult</option>
+                  <option value="complication">ภาวะแทรกซ้อน</option>
+                  <option value="transfer">ย้ายหอผู้ป่วย</option>
+                  <option value="note">บันทึกอื่น ๆ</option>
+                </select>
+              </label>
+            </div>
+            <label>หัวข้อ<input name="title" required placeholder="เช่น Consult GI"></label>
+            <label>รายละเอียด<textarea name="detail" rows="2"></textarea></label>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก</button>
+              <button type="button" class="ghost" data-cancel="event-form">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="timeline" class="timeline"></div>
+        </div>
+      </section>
+
+      <!-- ---- นำเข้าจากข้อความโรงพยาบาล ---- -->
+      <section class="panel" data-panel="import" hidden>
+        <div class="card">
+          <h3>นำเข้าจากข้อความโรงพยาบาล</h3>
+          <p class="muted">วางข้อความจากใบ lab / progress note ระบบจะดึงเฉพาะ <b>ตัวเลข V/S และ Lab</b> ออกมา
+            ไม่ดึงชื่อ-สกุลหรือข้อความบรรยาย และต้องกดยืนยันก่อนบันทึกเสมอ</p>
+          <label>ข้อความ
+            <textarea id="import-text" rows="7" placeholder="เช่น&#10;V/S BT 38.2 BP 100/60 PR 110 RR 24 O2sat 94%&#10;WBC 16.65  HGB 10.2  PLT 170&#10;Creatinine 2.98  Sodium (Na) 131  Potassium (K) 4.36"></textarea>
+          </label>
+          <div class="row">
+            <button id="btn-parse" class="primary">ตรวจข้อความ</button>
+            <button id="btn-clear-import" class="ghost">ล้าง</button>
+          </div>
+          <div id="import-preview"></div>
+        </div>
       </section>
     </div>
   </aside>

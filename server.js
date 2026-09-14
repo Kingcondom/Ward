@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./db');
+const { parseClinicalText, VITAL_RANGES, LAB_RANGES } = require('./parse');
 
 const PORT = Number(process.env.PORT || 3000);
 const PASSCODE = process.env.WARD_PASSCODE || 'ward1234';
@@ -158,6 +159,12 @@ async function handleApi(req, res, url, session) {
       return json(res, 400, { error: 'ต้องระบุเตียงและชื่อย่อ' });
     }
     const patient = store.createPatient(body, user);
+    store.createEvent(patient.id, {
+      occurred_at: patient.admitted_at,
+      kind: 'admit',
+      title: 'Admit เข้าหอผู้ป่วย',
+      detail: patient.diagnosis || null,
+    }, user, 1);
     broadcast('patient:created', { patient, by: user });
     return json(res, 201, patient);
   }
@@ -171,8 +178,17 @@ async function handleApi(req, res, url, session) {
       return json(res, 200, { ...patient, notes: store.listNotes(id) });
     }
     if (method === 'PATCH') {
+      const before = store.getPatient(id);
       const patient = store.updatePatient(id, await readBody(req), user);
       if (!patient) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      if (before && before.diagnosis !== patient.diagnosis && patient.diagnosis) {
+        store.createEvent(id, {
+          kind: 'diagnosis',
+          title: 'แก้ไข Diagnosis',
+          detail: patient.diagnosis,
+        }, user, 1);
+        broadcast('timeline:changed', { patient_id: id, by: user });
+      }
       broadcast('patient:updated', { patient, by: user });
       return json(res, 200, patient);
     }
@@ -188,6 +204,11 @@ async function handleApi(req, res, url, session) {
   if (m && method === 'POST') {
     if (!store.getPatient(m[1])) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
     const patient = m[2] === 'discharge' ? store.dischargePatient(m[1], user) : store.readmitPatient(m[1], user);
+    store.createEvent(m[1], {
+      kind: m[2] === 'discharge' ? 'discharge' : 'admit',
+      title: m[2] === 'discharge' ? 'D/C จำหน่ายผู้ป่วย' : 'รับกลับเข้ารักษา',
+    }, user, 1);
+    broadcast('timeline:changed', { patient_id: m[1], by: user });
     broadcast('patient:updated', { patient, by: user });
     return json(res, 200, patient);
   }
@@ -224,6 +245,108 @@ async function handleApi(req, res, url, session) {
   if (p === '/api/rounds' && method === 'GET') {
     const date = url.searchParams.get('date') || store.nowISO().slice(0, 10);
     return json(res, 200, { date, notes: store.notesForDate(date) });
+  }
+
+
+  // V/S
+  m = /^\/api\/patients\/([\w-]+)\/vitals$/.exec(p);
+  if (m) {
+    if (method === 'GET') return json(res, 200, store.listVitals(m[1]));
+    if (method === 'POST') {
+      const row = store.createVitals(m[1], await readBody(req), user);
+      if (!row) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('vitals:changed', { patient_id: m[1], by: user });
+      return json(res, 201, row);
+    }
+  }
+  m = /^\/api\/vitals\/([\w-]+)$/.exec(p);
+  if (m && method === 'DELETE') {
+    const row = store.deleteVitals(m[1]);
+    if (!row) return json(res, 404, { error: 'ไม่พบข้อมูล' });
+    broadcast('vitals:changed', { patient_id: row.patient_id, by: user });
+    return json(res, 200, { ok: true });
+  }
+
+  // Lab
+  m = /^\/api\/patients\/([\w-]+)\/labs$/.exec(p);
+  if (m) {
+    if (method === 'GET') return json(res, 200, store.listLabs(m[1]));
+    if (method === 'POST') {
+      const body = await readBody(req);
+      if (!String(body.name ?? '').trim()) return json(res, 400, { error: 'ต้องระบุชื่อ lab' });
+      const row = store.createLab(m[1], body, user);
+      if (!row) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('labs:changed', { patient_id: m[1], by: user });
+      return json(res, 201, row);
+    }
+  }
+  m = /^\/api\/labs\/([\w-]+)$/.exec(p);
+  if (m && method === 'DELETE') {
+    const row = store.deleteLab(m[1]);
+    if (!row) return json(res, 404, { error: 'ไม่พบข้อมูล' });
+    broadcast('labs:changed', { patient_id: row.patient_id, by: user });
+    return json(res, 200, { ok: true });
+  }
+
+  // Timeline / เหตุการณ์
+  m = /^\/api\/patients\/([\w-]+)\/timeline$/.exec(p);
+  if (m && method === 'GET') return json(res, 200, store.timeline(m[1]));
+
+  m = /^\/api\/patients\/([\w-]+)\/events$/.exec(p);
+  if (m && method === 'POST') {
+    const row = store.createEvent(m[1], await readBody(req), user);
+    if (!row) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+    broadcast('timeline:changed', { patient_id: m[1], by: user });
+    return json(res, 201, row);
+  }
+  m = /^\/api\/events\/([\w-]+)$/.exec(p);
+  if (m && method === 'DELETE') {
+    const row = store.deleteEvent(m[1]);
+    if (!row) return json(res, 404, { error: 'ไม่พบข้อมูล' });
+    broadcast('timeline:changed', { patient_id: row.patient_id, by: user });
+    return json(res, 200, { ok: true });
+  }
+
+  // ค่าอ้างอิงสำหรับไฮไลต์ค่าผิดปกติ
+  if (p === '/api/ranges' && method === 'GET') {
+    return json(res, 200, { vitals: VITAL_RANGES, labs: LAB_RANGES });
+  }
+
+  // อ่านข้อความจากระบบโรงพยาบาล -> แสดงให้ผู้ใช้ตรวจก่อน (ยังไม่บันทึก)
+  if (p === '/api/parse' && method === 'POST') {
+    const body = await readBody(req, 1024 * 1024);
+    return json(res, 200, parseClinicalText(body.text));
+  }
+
+  // บันทึกรายการที่ผู้ใช้ตรวจและยืนยันแล้ว
+  m = /^\/api\/patients\/([\w-]+)\/import$/.exec(p);
+  if (m && method === 'POST') {
+    const patientId = m[1];
+    if (!store.getPatient(patientId)) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+    const body = await readBody(req, 1024 * 1024);
+    let vitalsSaved = 0;
+    let labsSaved = 0;
+    if (body.vitals && Object.keys(body.vitals).length) {
+      store.createVitals(patientId, { ...body.vitals, measured_at: body.measured_at }, user, 'import');
+      vitalsSaved = 1;
+    }
+    for (const lab of Array.isArray(body.labs) ? body.labs : []) {
+      if (!lab || !String(lab.name ?? '').trim()) continue;
+      store.createLab(patientId, { ...lab, collected_at: body.collected_at }, user, 'import');
+      labsSaved++;
+    }
+    if (vitalsSaved || labsSaved) {
+      store.createEvent(patientId, {
+        occurred_at: (body.collected_at || body.measured_at || store.nowISO()).slice(0, 10),
+        kind: 'import',
+        title: 'นำเข้าข้อมูลจากข้อความโรงพยาบาล',
+        detail: `V/S ${vitalsSaved} ชุด, Lab ${labsSaved} ค่า`,
+      }, user, 1);
+      broadcast('vitals:changed', { patient_id: patientId, by: user });
+      broadcast('labs:changed', { patient_id: patientId, by: user });
+      broadcast('timeline:changed', { patient_id: patientId, by: user });
+    }
+    return json(res, 201, { vitals: vitalsSaved, labs: labsSaved });
   }
 
   return json(res, 404, { error: 'not found' });

@@ -9,6 +9,12 @@ const state = {
   openId: null,       // ผู้ป่วยที่เปิด drawer อยู่
   notes: [],
   editingNoteId: null,
+  vitals: [],
+  labs: [],
+  timeline: [],
+  ranges: { vitals: {}, labs: {} },
+  tab: 'info',
+  parsed: null,
 };
 
 /* ---------------- utils ---------------- */
@@ -66,6 +72,7 @@ $('#login-form').addEventListener('submit', async (e) => {
     state.user = user;
     e.target.reset();
     showApp();
+    state.ranges = await api('GET', '/api/ranges');
     await refresh();
     connectStream();
   } catch (ex) {
@@ -126,6 +133,14 @@ function connectStream() {
     render();
     if (touched(by)) toast(`${by} ลบผู้ป่วย 1 ราย`);
   });
+
+  for (const ev of ['vitals:changed', 'labs:changed', 'timeline:changed']) {
+    stream.addEventListener(ev, async (e) => {
+      const { patient_id: pid, by } = JSON.parse(e.data);
+      if (state.openId === pid) await loadClinical(pid);
+      if (by && by !== state.user && state.openId === pid) toast(`${by} อัปเดตข้อมูลผู้ป่วยรายนี้`);
+    });
+  }
 
   for (const ev of ['note:created', 'note:updated', 'note:deleted']) {
     stream.addEventListener(ev, async (e) => {
@@ -243,13 +258,47 @@ async function openPatient(id, { silent = false } = {}) {
   fillPatientForm(data);
   renderNotes();
   $('#drawer').hidden = false;
-  if (!silent) $('#note-form').hidden = true;
+  if (!silent) {
+    $('#note-form').hidden = true;
+    showTab('info');
+  }
+  await loadClinical(id);
 }
+
+async function loadClinical(id) {
+  const [vitals, labs, timeline] = await Promise.all([
+    api('GET', `/api/patients/${id}/vitals`),
+    api('GET', `/api/patients/${id}/labs`),
+    api('GET', `/api/patients/${id}/timeline`),
+  ]);
+  if (state.openId !== id) return;      // ผู้ใช้เปลี่ยนผู้ป่วยระหว่างโหลด
+  state.vitals = vitals;
+  state.labs = labs;
+  state.timeline = timeline;
+  renderVitals();
+  renderLabs();
+  renderTimeline();
+}
+
+/* ---------------- tabs ---------------- */
+function showTab(name) {
+  state.tab = name;
+  for (const btn of document.querySelectorAll('#tabs .tab')) btn.classList.toggle('active', btn.dataset.tab === name);
+  for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.dataset.panel !== name;
+}
+
+$('#tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (btn) showTab(btn.dataset.tab);
+});
 
 function closeDrawer() {
   $('#drawer').hidden = true;
   state.openId = null;
   state.editingNoteId = null;
+  state.vitals = [];
+  state.labs = [];
+  state.timeline = [];
   $('#note-form').hidden = true;
 }
 
@@ -354,6 +403,181 @@ $('#note-list').addEventListener('click', async (e) => {
   }
 });
 
+
+/* ================= V/S & Lab : กราฟแนวโน้ม =================
+   ใช้กราฟเล็กแยกหนึ่งค่าต่อหนึ่งกราฟ (small multiples) ไม่ใช้กราฟสองแกน
+   เพราะ BT 37 กับ BP 120 คนละสเกล ถ้าซ้อนแกนเดียวกันจะอ่านผิด          */
+
+const VS_SERIES = [
+  { key: 'bt', label: 'BT', unit: '°C' },
+  { key: 'sbp', label: 'BP ตัวบน (SBP)', unit: 'mmHg' },
+  { key: 'dbp', label: 'BP ตัวล่าง (DBP)', unit: 'mmHg' },
+  { key: 'pr', label: 'PR', unit: '/min' },
+  { key: 'rr', label: 'RR', unit: '/min' },
+  { key: 'o2sat', label: 'O2sat', unit: '%' },
+];
+
+function flagOf(range, value) {
+  if (!range || value === null || value === undefined || Number.isNaN(value)) return null;
+  if (range.low !== null && range.low !== undefined && value < range.low) return 'low';
+  if (range.high !== null && range.high !== undefined && value > range.high) return 'high';
+  return 'normal';
+}
+
+const FLAG_TEXT = { low: 'ต่ำ', high: 'สูง', normal: '' };
+const FLAG_MARK = { low: '▼', high: '▲', normal: '' };
+
+/** กราฟเส้นหนึ่งค่า: จุด >=8px, เส้น 2px, แถบช่วงอ้างอิงเป็นสีเทาถอยหลัง, hover มีรายละเอียด */
+function lineChart({ points, range, unit, label }) {
+  const W = 260; const H = 84;
+  const PAD = { t: 10, r: 10, b: 16, l: 34 };
+  const plotW = W - PAD.l - PAD.r;
+  const plotH = H - PAD.t - PAD.b;
+
+  const values = points.map((p) => p.value);
+  const lo = Math.min(...values, range?.low ?? Infinity);
+  const hi = Math.max(...values, range?.high ?? -Infinity);
+  const pad = (hi - lo) * 0.15 || Math.max(Math.abs(hi) * 0.05, 1);
+  const min = lo - pad;
+  const max = hi + pad;
+  const x = (i) => PAD.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
+  const y = (v) => PAD.t + plotH - ((v - min) / (max - min || 1)) * plotH;
+
+  let band = '';
+  if (range && (range.low != null || range.high != null)) {
+    const top = y(range.high ?? max);
+    const bottom = y(range.low ?? min);
+    band = `<rect class="band" x="${PAD.l}" y="${Math.min(top, bottom)}" width="${plotW}"
+      height="${Math.max(Math.abs(bottom - top), 1)}"></rect>`;
+  }
+
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join('');
+  const dots = points.map((p, i) => {
+    const f = flagOf(range, p.value);
+    return `<circle class="dot ${f || ''}" cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="4"
+      tabindex="0"><title>${esc(p.at)} — ${p.value}${unit ? ' ' + unit : ''}${
+      f && f !== 'normal' ? ` (${FLAG_TEXT[f]}กว่าค่าอ้างอิง)` : ''}</title></circle>`;
+  }).join('');
+
+  const last = points[points.length - 1];
+  const lastFlag = flagOf(range, last.value);
+  return `<figure class="chart">
+    <figcaption>
+      <span class="chart-label">${esc(label)}</span>
+      <span class="chart-last ${lastFlag || ''}">${last.value}<small>${unit ? ' ' + unit : ''}</small>${
+        lastFlag && lastFlag !== 'normal' ? ` <b>${FLAG_MARK[lastFlag]} ${FLAG_TEXT[lastFlag]}</b>` : ''}</span>
+    </figcaption>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="แนวโน้ม ${esc(label)}" preserveAspectRatio="none">
+      ${band}
+      <line class="axis" x1="${PAD.l}" y1="${PAD.t + plotH}" x2="${W - PAD.r}" y2="${PAD.t + plotH}"></line>
+      <text class="tick" x="${PAD.l - 4}" y="${PAD.t + 4}">${Number(max.toFixed(1))}</text>
+      <text class="tick" x="${PAD.l - 4}" y="${PAD.t + plotH}">${Number(min.toFixed(1))}</text>
+      ${points.length > 1 ? `<path class="line" d="${path}"></path>` : ''}
+      ${dots}
+    </svg>
+    <figcaption class="chart-range muted">${
+      range ? `ค่าอ้างอิง ${range.low ?? '–'}–${range.high ?? '–'}${unit ? ' ' + unit : ''}` : ''
+    } · ${points.length} ครั้ง</figcaption>
+  </figure>`;
+}
+
+function renderVitals() {
+  const rows = state.vitals;
+  const box = $('#vs-charts');
+  if (!rows.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มีข้อมูล V/S</p>';
+    $('#vs-table').innerHTML = '';
+    return;
+  }
+  box.innerHTML = VS_SERIES.map(({ key, label, unit }) => {
+    const points = rows.filter((r) => r[key] !== null && r[key] !== undefined)
+      .map((r) => ({ at: String(r.measured_at).replace('T', ' '), value: r[key] }));
+    if (!points.length) return '';
+    return lineChart({ points, range: state.ranges.vitals?.[key], unit, label });
+  }).join('') || '<p class="muted">ยังไม่มีค่าที่บันทึกไว้</p>';
+
+  $('#vs-table').innerHTML = `<div class="table-scroll"><table>
+    <thead><tr><th>วันเวลา</th>${VS_SERIES.map((s) => `<th>${s.label}</th>`).join('')}<th></th></tr></thead>
+    <tbody>${rows.slice().reverse().map((r) => `<tr>
+      <td>${esc(String(r.measured_at).replace('T', ' '))}</td>
+      ${VS_SERIES.map((s) => {
+        const f = flagOf(state.ranges.vitals?.[s.key], r[s.key]);
+        return `<td class="${f || ''}">${r[s.key] ?? '–'}${f && f !== 'normal' ? ` ${FLAG_MARK[f]}` : ''}</td>`;
+      }).join('')}
+      <td><button class="danger mini" data-del-vitals="${r.id}">ลบ</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderLabs() {
+  const rows = state.labs;
+  const box = $('#lab-charts');
+  if (!rows.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มีผล Lab</p>';
+    $('#lab-table').innerHTML = '';
+    return;
+  }
+  const byName = new Map();
+  for (const r of rows) {
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r);
+  }
+  box.innerHTML = [...byName.entries()].map(([name, list]) => {
+    const points = list.filter((r) => r.value !== null).map((r) => ({ at: r.collected_at, value: r.value }));
+    if (!points.length) return '';
+    return lineChart({ points, range: state.ranges.labs?.[name], unit: list[0].unit, label: name });
+  }).join('');
+
+  const dates = [...new Set(rows.map((r) => String(r.collected_at).slice(0, 10)))].sort().reverse();
+  const names = [...byName.keys()];
+  $('#lab-table').innerHTML = `<div class="table-scroll"><table>
+    <thead><tr><th>Lab</th>${dates.map((d) => `<th>${esc(d)}</th>`).join('')}</tr></thead>
+    <tbody>${names.map((n) => `<tr><td><b>${esc(n)}</b></td>${dates.map((d) => {
+      const hit = rows.find((r) => r.name === n && String(r.collected_at).slice(0, 10) === d);
+      if (!hit) return '<td>–</td>';
+      const f = flagOf(state.ranges.labs?.[n], hit.value);
+      return `<td class="${f || ''}">${hit.value}${f && f !== 'normal' ? ` ${FLAG_MARK[f]}` : ''}</td>`;
+    }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ================= Timeline ================= */
+
+const KIND_LABEL = {
+  admit: { icon: '🏥', text: 'Admit' },
+  diagnosis: { icon: '🩺', text: 'Diagnosis' },
+  procedure: { icon: '🔧', text: 'หัตถการ' },
+  consult: { icon: '📞', text: 'Consult' },
+  complication: { icon: '⚠️', text: 'ภาวะแทรกซ้อน' },
+  transfer: { icon: '🚚', text: 'ย้ายหอผู้ป่วย' },
+  discharge: { icon: '🏠', text: 'D/C' },
+  import: { icon: '📥', text: 'นำเข้าข้อมูล' },
+  soap: { icon: '📝', text: 'SOAP' },
+  note: { icon: '•', text: 'บันทึก' },
+};
+
+function renderTimeline() {
+  const items = state.timeline;
+  if (!items.length) {
+    $('#timeline').innerHTML = '<p class="muted">ยังไม่มีเหตุการณ์</p>';
+    return;
+  }
+  $('#timeline').innerHTML = items.map((it) => {
+    const k = KIND_LABEL[it.kind] ?? KIND_LABEL.note;
+    return `<div class="tl-item kind-${esc(it.kind)}">
+      <div class="tl-marker" aria-hidden="true">${k.icon}</div>
+      <div class="tl-body">
+        <div class="tl-head">
+          <b>${esc(it.title)}</b>
+          <span class="badge">${k.text}</span>
+          <span class="spacer"></span>
+          <span class="muted">${esc(it.at)}${it.author ? ` · ${esc(it.author)}` : ''}</span>
+          ${it.type === 'event' && !it.auto ? `<button class="danger mini" data-del-event="${it.id}">ลบ</button>` : ''}
+        </div>
+        ${it.detail ? `<p class="tl-detail">${esc(it.detail)}</p>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
 /* ---------------- add patient ---------------- */
 $('#btn-add').addEventListener('click', () => {
   const f = $('#add-form');
@@ -376,6 +600,144 @@ $('#add-form').addEventListener('submit', async (e) => {
     $('#add-error').hidden = false;
   }
 });
+
+
+/* ---------------- V/S, Lab, เหตุการณ์ ---------------- */
+function nowLocalDateTime() {
+  const d = new Date();
+  return `${today()}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function openSubForm(formSel, presets = {}) {
+  const f = $(formSel);
+  f.reset();
+  for (const [k, v] of Object.entries(presets)) if (f.elements[k]) f.elements[k].value = v;
+  f.hidden = false;
+  return f;
+}
+
+$('#btn-new-vitals').addEventListener('click', () => openSubForm('#vitals-form', { measured_at: nowLocalDateTime() }));
+$('#btn-new-lab').addEventListener('click', () => openSubForm('#lab-form', { collected_at: today() }));
+$('#btn-new-event').addEventListener('click', () => openSubForm('#event-form', { occurred_at: today() }));
+
+document.addEventListener('click', (e) => {
+  const cancel = e.target.dataset?.cancel;
+  if (cancel) $(`#${cancel}`).hidden = true;
+});
+
+$('#vitals-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = formData(e.target);
+  if (!VS_SERIES.some(({ key }) => body[key] !== '')) return toast('กรอกอย่างน้อย 1 ค่า');
+  try {
+    await api('POST', `/api/patients/${state.openId}/vitals`, body);
+    e.target.hidden = true;
+    toast('บันทึก V/S แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#lab-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('POST', `/api/patients/${state.openId}/labs`, formData(e.target));
+    e.target.hidden = true;
+    toast('บันทึก Lab แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#event-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('POST', `/api/patients/${state.openId}/events`, formData(e.target));
+    e.target.hidden = true;
+    toast('เพิ่มเหตุการณ์แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset?.delVitals) {
+      if (confirm('ลบค่า V/S ชุดนี้?')) await api('DELETE', `/api/vitals/${t.dataset.delVitals}`);
+    } else if (t.dataset?.delEvent) {
+      if (confirm('ลบเหตุการณ์นี้?')) await api('DELETE', `/api/events/${t.dataset.delEvent}`);
+    }
+  } catch (ex) { toast(ex.message); }
+});
+
+/* ---------------- นำเข้าจากข้อความโรงพยาบาล ---------------- */
+$('#btn-clear-import').addEventListener('click', () => {
+  $('#import-text').value = '';
+  $('#import-preview').innerHTML = '';
+  state.parsed = null;
+});
+
+$('#btn-parse').addEventListener('click', async () => {
+  const text = $('#import-text').value.trim();
+  if (!text) return toast('วางข้อความก่อน');
+  const parsed = await api('POST', '/api/parse', { text });
+  state.parsed = parsed;
+  renderImportPreview(parsed);
+});
+
+function renderImportPreview(parsed) {
+  const box = $('#import-preview');
+  if (!parsed.found) {
+    box.innerHTML = `<p class="error">ไม่พบตัวเลข V/S หรือ Lab ที่อ่านได้ในข้อความนี้
+      — ลองวางเฉพาะส่วนที่เป็นค่าตรวจ หรือกรอกเองในแท็บ V/S &amp; Lab</p>`;
+    return;
+  }
+  const v = parsed.vitals ?? {};
+  const vsRows = VS_SERIES.filter(({ key }) => v[key] !== undefined).map(({ key, label, unit }) => {
+    const f = flagOf(state.ranges.vitals?.[key], v[key]);
+    return `<label class="check imp-row"><input type="checkbox" data-vs="${key}" checked>
+      <span>${label} <b>${v[key]}</b> <small>${unit}</small>${
+        f && f !== 'normal' ? ` <em class="${f}">${FLAG_MARK[f]} ${FLAG_TEXT[f]}</em>` : ''}</span></label>`;
+  }).join('');
+
+  const labRows = parsed.labs.map((l, i) => {
+    const f = flagOf(state.ranges.labs?.[l.name], l.value);
+    return `<label class="check imp-row"><input type="checkbox" data-lab="${i}" checked>
+      <span>${esc(l.name)} <b>${l.value}</b> <small>${esc(l.unit ?? '')}</small>${
+        f && f !== 'normal' ? ` <em class="${f}">${FLAG_MARK[f]} ${FLAG_TEXT[f]}</em>` : ''}
+      <small class="muted">จาก “${esc(l.raw)}”</small></span></label>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="import-box">
+      <div class="row">
+        <label>วันที่ของค่าเหล่านี้<input type="date" id="import-date" value="${parsed.date || today()}"></label>
+        <label>เวลา (ถ้ามี)<input type="time" id="import-time" value="${parsed.time || ''}"></label>
+      </div>
+      ${vsRows ? `<h4>Vital signs</h4>${vsRows}` : ''}
+      ${labRows ? `<h4>Lab (${parsed.labs.length} ค่า)</h4>${labRows}` : ''}
+      <div class="row">
+        <button class="primary" id="btn-import-save">บันทึกรายการที่เลือก</button>
+        <span class="muted">ตรวจให้ตรงกับต้นฉบับก่อนกดบันทึก</span>
+      </div>
+    </div>`;
+
+  $('#btn-import-save').addEventListener('click', async () => {
+    const date = $('#import-date').value || today();
+    const time = $('#import-time').value;
+    const vitals = {};
+    for (const cb of document.querySelectorAll('[data-vs]:checked')) vitals[cb.dataset.vs] = v[cb.dataset.vs];
+    const labs = [...document.querySelectorAll('[data-lab]:checked')].map((cb) => parsed.labs[Number(cb.dataset.lab)]);
+    if (!Object.keys(vitals).length && !labs.length) return toast('ยังไม่ได้เลือกรายการ');
+    const result = await api('POST', `/api/patients/${state.openId}/import`, {
+      vitals: Object.keys(vitals).length ? vitals : null,
+      labs,
+      measured_at: `${date}T${time || '08:00'}`,
+      collected_at: date,
+    });
+    toast(`บันทึกแล้ว — V/S ${result.vitals} ชุด, Lab ${result.labs} ค่า`);
+    $('#import-text').value = '';
+    $('#import-preview').innerHTML = '';
+    state.parsed = null;
+    await loadClinical(state.openId);   // ไม่รอ event จาก SSE เพื่อให้เห็นผลทันที
+    showTab('trend');
+  });
+}
 
 /* ---------------- rounds ---------------- */
 $('#btn-rounds').addEventListener('click', () => {
@@ -419,6 +781,7 @@ document.addEventListener('keydown', (e) => {
     if (!me.ok) return showLogin();
     state.user = (await me.json()).user;
     showApp();
+    state.ranges = await api('GET', '/api/ranges');
     await refresh();
     connectStream();
   } catch { showLogin(); }
