@@ -95,6 +95,12 @@ const MIGRATIONS = [
   );
   CREATE INDEX IF NOT EXISTS idx_events_patient ON events(patient_id, occurred_at DESC);
   `,
+
+  // 3 — เลิกเก็บ HN เพื่อลดข้อมูลระบุตัวตน (ค่าที่เคยบันทึกไว้จะถูกลบไปด้วย)
+  () => {
+    const hasHn = db.prepare("PRAGMA table_info(patients)").all().some((c) => c.name === 'hn');
+    if (hasHn) db.exec('ALTER TABLE patients DROP COLUMN hn');
+  },
 ];
 
 function migrate() {
@@ -103,7 +109,8 @@ function migrate() {
   for (let v = current; v < MIGRATIONS.length; v++) {
     db.exec('BEGIN');
     try {
-      db.exec(MIGRATIONS[v]);
+      const step = MIGRATIONS[v];
+      if (typeof step === 'function') step(); else db.exec(step);
       db.exec(`PRAGMA user_version = ${v + 1}`);
       db.exec('COMMIT');
       console.log(`ฐานข้อมูล: อัปเกรดเป็นเวอร์ชัน ${v + 1}`);
@@ -121,7 +128,7 @@ const newId = () => crypto.randomUUID();
 
 /* ---------- patients ---------- */
 
-const PATIENT_FIELDS = ['bed', 'initials', 'hn', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'status', 'admitted_at', 'discharged_at'];
+const PATIENT_FIELDS = ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'status', 'admitted_at', 'discharged_at'];
 
 function listPatients({ includeDischarged = false } = {}) {
   const sql = includeDischarged
@@ -145,12 +152,11 @@ function createPatient(input, user) {
   const ts = nowISO();
   const id = newId();
   db.prepare(`INSERT INTO patients
-    (id, bed, initials, hn, age, sex, diagnosis, treatment, allergy, status, admitted_at, created_at, updated_at, updated_by)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    (id, bed, initials, age, sex, diagnosis, treatment, allergy, status, admitted_at, created_at, updated_at, updated_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
     id,
     String(input.bed ?? '').trim(),
     String(input.initials ?? '').trim(),
-    input.hn ?? null,
     input.age ?? null,
     input.sex ?? null,
     input.diagnosis ?? null,

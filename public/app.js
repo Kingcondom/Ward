@@ -181,7 +181,7 @@ function visiblePatients() {
   return state.patients.filter((p) => {
     if (onlyPending && (p.last_soap_date === d || p.status !== 'active')) return false;
     if (!q) return true;
-    return [p.bed, p.initials, p.hn, p.diagnosis, p.treatment].some((v) => String(v ?? '').toLowerCase().includes(q));
+    return [p.bed, p.initials, p.diagnosis, p.treatment].some((v) => String(v ?? '').toLowerCase().includes(q));
   });
 }
 
@@ -208,7 +208,7 @@ function render() {
       <div class="bed-top">
         <span class="bed-chip">เตียง ${esc(p.bed)}</span>
         <span class="bed-name">${esc(p.initials)}</span>
-        <span class="bed-meta">${esc([p.age, p.sex].filter(Boolean).join(' · '))}${p.hn ? `<br>HN ${esc(p.hn)}` : ''}</span>
+        <span class="bed-meta">${esc([p.age, p.sex].filter(Boolean).join(' · '))}</span>
       </div>
       <div class="field"><span>Diagnosis</span>${esc(p.diagnosis) || '<i class="muted">—</i>'}</div>
       <div class="field"><span>การรักษา</span>${esc(p.treatment) || '<i class="muted">—</i>'}</div>
@@ -240,12 +240,12 @@ $('#show-discharged').addEventListener('change', () => refresh({ keepOpen: true 
 /* ---------------- patient drawer ---------------- */
 function fillPatientForm(p) {
   const f = $('#patient-form');
-  for (const k of ['bed', 'initials', 'hn', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'admitted_at']) {
+  for (const k of ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'admitted_at']) {
     if (f.elements[k]) f.elements[k].value = p[k] ?? '';
   }
   $('#d-bed').textContent = `เตียง ${p.bed}`;
   $('#d-title').textContent = p.initials;
-  $('#d-sub').textContent = [p.hn && `HN ${p.hn}`, p.age, p.sex, p.admitted_at && `admit ${p.admitted_at}`,
+  $('#d-sub').textContent = [p.age, p.sex, p.admitted_at && `admit ${p.admitted_at}`,
     p.status !== 'active' && `D/C ${p.discharged_at ?? ''}`].filter(Boolean).join(' · ');
   $('#btn-discharge').hidden = p.status !== 'active';
   $('#btn-readmit').hidden = p.status === 'active';

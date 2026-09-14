@@ -4,7 +4,7 @@
  *   node seed.js          เพิ่มข้อมูลตัวอย่าง
  *   node seed.js --reset  ล้างข้อมูลเดิมทั้งหมดก่อน แล้วค่อยใส่ใหม่
  *
- * ผู้ป่วยทุกรายเป็นเคสสมมติ ชื่อย่อและ HN ไม่ใช่ของจริง
+ * ผู้ป่วยทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง
  */
 const store = require('./db');
 
@@ -15,7 +15,7 @@ const BY = 'ข้อมูลตัวอย่าง';
 
 const CASES = [
   {
-    bed: '1', initials: 'ก.จ.', hn: 'DEMO-001', age: '70 ปี', sex: 'ชาย', allergy: null,
+    bed: '1', initials: 'ก.จ.', age: '70 ปี', sex: 'ชาย', allergy: null,
     diagnosis: 'Acute pancreatitis (recurrent) with AKI, transaminitis R/O DILI',
     treatment: 'NPO, IV hydration, งด HCTZ/enalapril/simvastatin, Tazocin 4.5g IV q8h',
     admit: 5,
@@ -48,7 +48,7 @@ const CASES = [
     ],
   },
   {
-    bed: '3', initials: 'ส.ท.', hn: 'DEMO-002', age: '82 ปี', sex: 'ชาย', allergy: null,
+    bed: '3', initials: 'ส.ท.', age: '82 ปี', sex: 'ชาย', allergy: null,
     diagnosis: 'Congestive heart failure with R/O chronic coronary syndrome, AKI on CKD',
     treatment: 'Lasix 40 mg IV OD, ASA, จำกัดน้ำ 1200 ml/day, on O2 cannula 3 LPM',
     admit: 3,
@@ -74,7 +74,7 @@ const CASES = [
     ],
   },
   {
-    bed: '5', initials: 'ว.พ.', hn: 'DEMO-003', age: '59 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
+    bed: '5', initials: 'ว.พ.', age: '59 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
     diagnosis: 'NSCLC T3N3M1 (adenocarcinoma, EGFR L858R+) with bone metastasis, right pleural effusion',
     treatment: 'Erlotinib ต่อเนื่อง, thoracocentesis, ceftriaxone + clindamycin, on HFNC, fentanyl patch',
     admit: 2,
@@ -98,7 +98,7 @@ const CASES = [
     ],
   },
   {
-    bed: '7', initials: 'ป.ร.', hn: 'DEMO-004', age: '77 ปี', sex: 'ชาย', allergy: null,
+    bed: '7', initials: 'ป.ร.', age: '77 ปี', sex: 'ชาย', allergy: null,
     diagnosis: 'Hypertensive emergency with acute de novo heart failure, severe AS',
     treatment: 'NTG IV drip keep SBP < 170, NIV, Lasix IV',
     admit: 1,
@@ -121,7 +121,7 @@ const CASES = [
     ],
   },
   {
-    bed: '9', initials: 'ม.ก.', hn: 'DEMO-005', age: '72 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
+    bed: '9', initials: 'ม.ก.', age: '72 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
     diagnosis: 'Type 2 DM with DKA precipitated by acute febrile illness, BPH with failed Foley catheterization',
     treatment: 'RI IV drip, NSS + KCl IV, ceftriaxone 2 g IV, consult Uro Sx',
     admit: 2,
@@ -146,7 +146,7 @@ const CASES = [
     ],
   },
   {
-    bed: '11', initials: 'อ.ส.', hn: 'DEMO-006', age: '74 ปี', sex: 'ชาย', allergy: null,
+    bed: '11', initials: 'อ.ส.', age: '74 ปี', sex: 'ชาย', allergy: null,
     diagnosis: 'Acute asthmatic attack from secretion obstruction, R/O tracheobronchitis; tracheostomy No.8',
     treatment: 'Dexamethasone 4 mg IV q12h, Berodual NB q4h, Tazocin, ดูแล tracheostomy',
     admit: 4,
@@ -172,7 +172,7 @@ const CASES = [
     ],
   },
   {
-    bed: '12', initials: 'ธ.บ.', hn: 'DEMO-007', age: '65 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
+    bed: '12', initials: 'ธ.บ.', age: '65 ปี', sex: 'ชาย', allergy: 'ปฏิเสธ',
     diagnosis: 'Upper GI bleeding with hypovolemic shock',
     treatment: 'NPO, pantoprazole IV drip, LPRC 4 units, hold ASA, เตรียม EGD',
     admit: 1,
@@ -206,7 +206,7 @@ function seed() {
   let counts = { patients: 0, soap: 0, vitals: 0, labs: 0, events: 0 };
   for (const c of CASES) {
     const patient = store.createPatient({
-      bed: c.bed, initials: c.initials, hn: c.hn, age: c.age, sex: c.sex,
+      bed: c.bed, initials: c.initials, age: c.age, sex: c.sex,
       diagnosis: c.diagnosis, treatment: c.treatment, allergy: c.allergy,
       admitted_at: d(c.admit),
     }, BY);
@@ -245,5 +245,5 @@ if (require.main === module) {
   if (process.argv.includes('--reset')) reset();
   const counts = seed();
   console.log(`ใส่ข้อมูลตัวอย่างแล้ว: ผู้ป่วย ${counts.patients} ราย, SOAP ${counts.soap}, V/S ${counts.vitals} ชุด, Lab ${counts.labs} ค่า, เหตุการณ์ ${counts.events}`);
-  console.log('ทุกรายเป็นเคสสมมติ ชื่อย่อและ HN ไม่ใช่ของจริง — ลบทั้งหมดได้ด้วย node seed.js --reset');
+  console.log('ทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง — ลบทั้งหมดได้ด้วย node seed.js --reset');
 }
