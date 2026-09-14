@@ -1,0 +1,18 @@
+# Render.com — deploy จาก GitHub ได้จากเบราว์เซอร์บน iPad ล้วน ๆ
+# หมายเหตุ: disk ต้องใช้แพลนแบบเสียเงิน ถ้าใช้ free tier ข้อมูลจะหายเมื่อ redeploy
+services:
+  - type: web
+    name: ward
+    runtime: docker
+    plan: starter
+    region: singapore
+    healthCheckPath: /
+    envVars:
+      - key: WARD_PASSCODE
+        sync: false          # ตั้งค่าเองในหน้า Dashboard ของ Render
+      - key: WARD_DB
+        value: /data/ward.db
+    disk:
+      name: ward-data
+      mountPath: /data
+      sizeGB: 1

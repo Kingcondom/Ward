@@ -49,6 +49,8 @@ input, select, textarea {
   border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink);
 }
 textarea { resize: vertical; }
+/* iOS/iPadOS ซูมหน้าจอเองถ้าตัวอักษรในช่องกรอกเล็กกว่า 16px */
+@media (pointer: coarse) { input, select, textarea { font-size: 16px; } }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
 .check { display: inline-flex; align-items: center; gap: .35rem; margin: 0; font-size: .85rem; white-space: nowrap; }
 .check input { width: auto; margin: 0; }
@@ -68,6 +70,7 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
   display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
   padding: .7rem 1rem; background: var(--card); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 5;
+  padding-top: max(.7rem, env(safe-area-inset-top));
 }
 .brand { font-size: 1.05rem; }
 .stats { display: flex; gap: .9rem; flex-wrap: wrap; font-size: .82rem; color: var(--muted); }
@@ -78,7 +81,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent-soft
 .live.on i { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .live.off i { background: var(--danger); }
 
-main { padding: 1rem; max-width: 1400px; margin: 0 auto; }
+main {
+  max-width: 1400px; margin: 0 auto;
+  padding: 1rem max(1rem, env(safe-area-inset-right)) max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
 .toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
 .toolbar #search { max-width: 280px; margin: 0; }
 
@@ -115,10 +121,10 @@ main { padding: 1rem; max-width: 1400px; margin: 0 auto; }
   position: relative; margin-left: auto; width: min(560px, 100%); height: 100%;
   background: var(--bg); border-left: 1px solid var(--line); display: flex; flex-direction: column;
 }
-.drawer-head { display: flex; gap: 1rem; padding: 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
+.drawer-head { display: flex; gap: 1rem; padding: max(1rem, env(safe-area-inset-top)) 1rem 1rem; background: var(--card); border-bottom: 1px solid var(--line); }
 .drawer-head > button { align-self: start; margin-left: auto; }
 .drawer-head h2 { margin: .3rem 0 .1rem; font-size: 1.15rem; }
-.drawer-body { overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 1rem; }
+.drawer-body { overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 1rem 1rem max(1rem, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 1rem; }
 .modal-card { position: relative; margin: auto; width: min(520px, 94%); max-height: 90vh; overflow-y: auto; }
 .modal-card.wide { width: min(900px, 96%); }
 
