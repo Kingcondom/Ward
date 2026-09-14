@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ward — ระบบข้อมูลผู้ป่วยในหอผู้ป่วย</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛏️</text></svg>">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ---------- Login ---------- -->
+<div id="login" class="login-wrap" hidden>
+  <form id="login-form" class="card login-card">
+    <h1>🛏️ Ward</h1>
+    <p class="muted">ระบบเก็บข้อมูลผู้ป่วยแบบ real-time</p>
+    <label>ชื่อผู้บันทึก (เช่น Extern สมชาย)
+      <input name="user" autocomplete="username" required maxlength="60">
+    </label>
+    <label>รหัสผ่านหอผู้ป่วย
+      <input name="passcode" type="password" autocomplete="current-password" required>
+    </label>
+    <button class="primary" type="submit">เข้าใช้งาน</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+</div>
+
+<!-- ---------- App ---------- -->
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="brand">🛏️ <strong>Ward</strong></div>
+    <div class="stats">
+      <span class="stat"><b id="stat-active">0</b> เตียงที่ครอง</span>
+      <span class="stat"><b id="stat-today">0</b> SOAP วันนี้</span>
+      <span class="stat"><b id="stat-pending">0</b> ยังไม่ได้บันทึกวันนี้</span>
+    </div>
+    <div class="topbar-right">
+      <span id="live" class="live" title="สถานะการเชื่อมต่อ real-time"><i></i> <span id="live-text">กำลังเชื่อมต่อ…</span></span>
+      <span class="muted" id="who"></span>
+      <button id="logout" class="ghost">ออก</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar">
+      <input id="search" type="search" placeholder="ค้นหา เตียง / ชื่อย่อ / HN / Diag…">
+      <label class="check"><input type="checkbox" id="show-discharged"> แสดงผู้ป่วยที่ D/C แล้ว</label>
+      <label class="check"><input type="checkbox" id="only-pending"> เฉพาะที่ยังไม่มี SOAP วันนี้</label>
+      <span class="spacer"></span>
+      <button id="btn-rounds" class="ghost">📋 Round วันนี้</button>
+      <button id="btn-add" class="primary">+ รับผู้ป่วยใหม่</button>
+    </section>
+
+    <div id="board" class="board"></div>
+    <p id="empty" class="empty" hidden>ยังไม่มีผู้ป่วยในหอ — กด “รับผู้ป่วยใหม่” เพื่อเริ่ม</p>
+  </main>
+</div>
+
+<!-- ---------- Patient drawer ---------- -->
+<div id="drawer" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close></div>
+  <aside class="drawer-panel">
+    <header class="drawer-head">
+      <div>
+        <span class="bed-chip" id="d-bed"></span>
+        <h2 id="d-title"></h2>
+        <p class="muted" id="d-sub"></p>
+      </div>
+      <button class="ghost" data-close>✕</button>
+    </header>
+
+    <div class="drawer-body">
+      <form id="patient-form" class="card">
+        <h3>ข้อมูลผู้ป่วย</h3>
+        <div class="grid">
+          <label>เตียง<input name="bed" required></label>
+          <label>ชื่อย่อ<input name="initials" required placeholder="ส.ส."></label>
+          <label>HN<input name="hn"></label>
+          <label>อายุ<input name="age" placeholder="62 ปี"></label>
+          <label>เพศ
+            <select name="sex"><option value="">–</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option></select>
+          </label>
+          <label>วันที่ Admit<input name="admitted_at" type="date"></label>
+        </div>
+        <label>Diagnosis<textarea name="diagnosis" rows="2"></textarea></label>
+        <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
+        <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
+        <div class="row">
+          <button class="primary" type="submit">บันทึกข้อมูล</button>
+          <button type="button" id="btn-discharge" class="ghost">D/C</button>
+          <button type="button" id="btn-readmit" class="ghost" hidden>กลับเข้ารักษา</button>
+          <span class="spacer"></span>
+          <button type="button" id="btn-delete" class="danger">ลบ</button>
+        </div>
+      </form>
+
+      <section class="card">
+        <div class="row">
+          <h3>SOAP รายวัน</h3>
+          <span class="spacer"></span>
+          <button id="btn-new-note" class="primary">+ SOAP วันนี้</button>
+        </div>
+        <form id="note-form" class="note-form" hidden>
+          <div class="grid">
+            <label>วันที่<input name="note_date" type="date" required></label>
+            <label>รอบ<input name="round" placeholder="เช้า / เย็น"></label>
+          </div>
+          <label>S — Subjective<textarea name="subjective" rows="2"></textarea></label>
+          <label>O — Objective<textarea name="objective" rows="3" placeholder="V/S, PE, Lab"></textarea></label>
+          <label>A — Assessment<textarea name="assessment" rows="2"></textarea></label>
+          <label>P — Plan<textarea name="plan" rows="2"></textarea></label>
+          <div class="row">
+            <button class="primary" type="submit">บันทึก SOAP</button>
+            <button type="button" id="btn-cancel-note" class="ghost">ยกเลิก</button>
+          </div>
+        </form>
+        <div id="note-list" class="note-list"></div>
+      </section>
+    </div>
+  </aside>
+</div>
+
+<!-- ---------- Add patient modal ---------- -->
+<div id="modal-add" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close></div>
+  <form id="add-form" class="card modal-card">
+    <h3>รับผู้ป่วยใหม่</h3>
+    <div class="grid">
+      <label>เตียง *<input name="bed" required></label>
+      <label>ชื่อย่อ *<input name="initials" required placeholder="ส.ส."></label>
+      <label>HN<input name="hn"></label>
+      <label>อายุ<input name="age"></label>
+      <label>เพศ<select name="sex"><option value="">–</option><option value="ชาย">ชาย</option><option value="หญิง">หญิง</option></select></label>
+      <label>วันที่ Admit<input name="admitted_at" type="date"></label>
+    </div>
+    <label>Diagnosis<textarea name="diagnosis" rows="2"></textarea></label>
+    <label>การรักษา<textarea name="treatment" rows="2"></textarea></label>
+    <div class="row">
+      <button class="primary" type="submit">บันทึก</button>
+      <button type="button" class="ghost" data-close>ยกเลิก</button>
+    </div>
+    <p class="error" id="add-error" hidden></p>
+  </form>
+</div>
+
+<!-- ---------- Rounds modal ---------- -->
+<div id="modal-rounds" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close></div>
+  <div class="card modal-card wide">
+    <div class="row">
+      <h3>📋 Round — SOAP ประจำวัน</h3>
+      <span class="spacer"></span>
+      <input type="date" id="rounds-date">
+      <button class="ghost" data-close>✕</button>
+    </div>
+    <div id="rounds-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>

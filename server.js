@@ -1,0 +1,253 @@
+'use strict';
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const store = require('./db');
+
+const PORT = Number(process.env.PORT || 3000);
+const PASSCODE = process.env.WARD_PASSCODE || 'ward1234';
+const PUBLIC_DIR = path.join(__dirname, 'public');
+const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 ชม.
+
+/* ---------------- sessions (in-memory) ---------------- */
+const sessions = new Map(); // token -> { user, expires }
+
+function createSession(user) {
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.set(token, { user, expires: Date.now() + SESSION_TTL_MS });
+  return token;
+}
+
+function readSession(req) {
+  const cookie = req.headers.cookie || '';
+  const m = /(?:^|;\s*)ward_session=([a-f0-9]+)/.exec(cookie);
+  if (!m) return null;
+  const s = sessions.get(m[1]);
+  if (!s) return null;
+  if (s.expires < Date.now()) { sessions.delete(m[1]); return null; }
+  return { token: m[1], user: s.user };
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, s] of sessions) if (s.expires < now) sessions.delete(t);
+}, 10 * 60 * 1000).unref();
+
+/* ---------------- realtime: Server-Sent Events ---------------- */
+const clients = new Set();
+
+function broadcast(event, payload) {
+  const frame = `event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`;
+  for (const res of clients) {
+    try { res.write(frame); } catch { clients.delete(res); }
+  }
+}
+
+setInterval(() => {
+  for (const res of clients) {
+    try { res.write(': ping\n\n'); } catch { clients.delete(res); }
+  }
+}, 25000).unref();
+
+/* ---------------- helpers ---------------- */
+function json(res, status, body) {
+  const data = JSON.stringify(body);
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+    'content-length': Buffer.byteLength(data),
+  });
+  res.end(data);
+}
+
+function readBody(req, limit = 256 * 1024) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    const chunks = [];
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(new Error('payload too large')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      if (!chunks.length) return resolve({});
+      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch { reject(new Error('invalid JSON')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
+};
+
+function serveStatic(req, res, urlPath) {
+  const rel = urlPath === '/' ? 'index.html' : urlPath.replace(/^\/+/, '');
+  const filePath = path.join(PUBLIC_DIR, rel);
+  if (!filePath.startsWith(PUBLIC_DIR + path.sep)) return json(res, 403, { error: 'forbidden' });
+  fs.readFile(filePath, (err, data) => {
+    if (err) return json(res, 404, { error: 'not found' });
+    res.writeHead(200, { 'content-type': MIME[path.extname(filePath)] || 'application/octet-stream', 'cache-control': 'no-cache' });
+    res.end(data);
+  });
+}
+
+/* ---------------- API ---------------- */
+async function handleApi(req, res, url, session) {
+  const p = url.pathname;
+  const method = req.method;
+
+  // --- auth (ไม่ต้อง login) ---
+  if (p === '/api/login' && method === 'POST') {
+    const body = await readBody(req);
+    const pass = String(body.passcode ?? '');
+    const user = String(body.user ?? '').trim().slice(0, 60);
+    const ok = pass.length === PASSCODE.length &&
+      crypto.timingSafeEqual(Buffer.from(pass), Buffer.from(PASSCODE));
+    if (!ok || !user) return json(res, 401, { error: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
+    const token = createSession(user);
+    res.setHeader('set-cookie', `ward_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${SESSION_TTL_MS / 1000}`);
+    return json(res, 200, { user });
+  }
+
+  if (p === '/api/me') {
+    return session ? json(res, 200, { user: session.user }) : json(res, 401, { error: 'unauthenticated' });
+  }
+
+  if (p === '/api/logout' && method === 'POST') {
+    if (session) sessions.delete(session.token);
+    res.setHeader('set-cookie', 'ward_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+    return json(res, 200, { ok: true });
+  }
+
+  // --- ต้อง login ---
+  if (!session) return json(res, 401, { error: 'unauthenticated' });
+  const user = session.user;
+
+  // realtime stream
+  if (p === '/api/stream' && method === 'GET') {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+      'x-accel-buffering': 'no',
+    });
+    res.write('retry: 3000\n\n');
+    res.write(`event: hello\ndata: ${JSON.stringify({ user, viewers: clients.size + 1 })}\n\n`);
+    clients.add(res);
+    broadcast('viewers', { viewers: clients.size });
+    req.on('close', () => { clients.delete(res); broadcast('viewers', { viewers: clients.size }); });
+    return undefined;
+  }
+
+  // patients
+  if (p === '/api/patients' && method === 'GET') {
+    return json(res, 200, store.listPatients({ includeDischarged: url.searchParams.get('all') === '1' }));
+  }
+
+  if (p === '/api/patients' && method === 'POST') {
+    const body = await readBody(req);
+    if (!String(body.bed ?? '').trim() || !String(body.initials ?? '').trim()) {
+      return json(res, 400, { error: 'ต้องระบุเตียงและชื่อย่อ' });
+    }
+    const patient = store.createPatient(body, user);
+    broadcast('patient:created', { patient, by: user });
+    return json(res, 201, patient);
+  }
+
+  let m = /^\/api\/patients\/([\w-]+)$/.exec(p);
+  if (m) {
+    const id = m[1];
+    if (method === 'GET') {
+      const patient = store.getPatient(id);
+      if (!patient) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      return json(res, 200, { ...patient, notes: store.listNotes(id) });
+    }
+    if (method === 'PATCH') {
+      const patient = store.updatePatient(id, await readBody(req), user);
+      if (!patient) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('patient:updated', { patient, by: user });
+      return json(res, 200, patient);
+    }
+    if (method === 'DELETE') {
+      if (!store.getPatient(id)) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      store.deletePatient(id);
+      broadcast('patient:deleted', { id, by: user });
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  m = /^\/api\/patients\/([\w-]+)\/(discharge|readmit)$/.exec(p);
+  if (m && method === 'POST') {
+    if (!store.getPatient(m[1])) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+    const patient = m[2] === 'discharge' ? store.dischargePatient(m[1], user) : store.readmitPatient(m[1], user);
+    broadcast('patient:updated', { patient, by: user });
+    return json(res, 200, patient);
+  }
+
+  // SOAP notes
+  m = /^\/api\/patients\/([\w-]+)\/notes$/.exec(p);
+  if (m) {
+    if (method === 'GET') return json(res, 200, store.listNotes(m[1]));
+    if (method === 'POST') {
+      const note = store.createNote(m[1], await readBody(req), user);
+      if (!note) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('note:created', { note, by: user });
+      return json(res, 201, note);
+    }
+  }
+
+  m = /^\/api\/notes\/([\w-]+)$/.exec(p);
+  if (m) {
+    if (method === 'PATCH') {
+      const note = store.updateNote(m[1], await readBody(req), user);
+      if (!note) return json(res, 404, { error: 'ไม่พบบันทึก' });
+      broadcast('note:updated', { note, by: user });
+      return json(res, 200, note);
+    }
+    if (method === 'DELETE') {
+      const note = store.deleteNote(m[1]);
+      if (!note) return json(res, 404, { error: 'ไม่พบบันทึก' });
+      broadcast('note:deleted', { id: note.id, patient_id: note.patient_id, by: user });
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  // รายงาน SOAP ของวันนั้น (ทุกเตียง)
+  if (p === '/api/rounds' && method === 'GET') {
+    const date = url.searchParams.get('date') || store.nowISO().slice(0, 10);
+    return json(res, 200, { date, notes: store.notesForDate(date) });
+  }
+
+  return json(res, 404, { error: 'not found' });
+}
+
+/* ---------------- server ---------------- */
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const session = readSession(req);
+
+  if (url.pathname.startsWith('/api/')) {
+    handleApi(req, res, url, session).catch((err) => {
+      if (!res.headersSent) json(res, 400, { error: err.message || 'bad request' });
+    });
+    return;
+  }
+  if (req.method !== 'GET') return json(res, 405, { error: 'method not allowed' });
+  serveStatic(req, res, url.pathname);
+});
+
+server.listen(PORT, () => {
+  console.log(`Ward  →  http://localhost:${PORT}`);
+  console.log(`ฐานข้อมูล: ${store.DB_PATH}`);
+  if (!process.env.WARD_PASSCODE) console.log('⚠  ใช้รหัสผ่านเริ่มต้น "ward1234" — ตั้ง WARD_PASSCODE ก่อนใช้งานจริง');
+});
+
+module.exports = server;
