@@ -5,3 +5,9 @@ data/*.db-wal
 data/*.db-shm
 .env
 *.log
+
+# ไฟล์ข้อมูลผู้ป่วยจริงที่นำเข้าเอง — ห้าม commit ขึ้น GitHub เด็ดขาด
+import-cases.js
+patient-data*
+private-*
+*.phi.*

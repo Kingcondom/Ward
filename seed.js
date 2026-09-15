@@ -19,6 +19,25 @@ const CASES = [
     diagnosis: 'Acute pancreatitis (recurrent) with AKI, transaminitis R/O DILI',
     treatment: 'NPO, IV hydration, งด HCTZ/enalapril/simvastatin, Tazocin 4.5g IV q8h',
     admit: 5,
+    underlying: '# HT\n# DLP\n# NAFLD\n# Colonic diverticulosis\n# BPH',
+    cc: 'ปวดท้องใต้ลิ้นปี่ 13 ชั่วโมงก่อนมา รพ.',
+    pi: 'ปวดท้องใต้ลิ้นปี่และใต้ชายโครงซ้าย ร้าวไปกลางหลัง ปวดทันที PS 10/10 ปวดตลอดเวลา นอนตะแคงแล้วปวดมากขึ้น\nคลื่นไส้อาเจียนหลายรอบเป็นน้ำสีเหลือง ไม่ถ่ายเหลว ไม่เจ็บแน่นหน้าอก ไม่มีไข้',
+    ph: 'ไม่ดื่มสุรา หยุดสูบบุหรี่มา 30 ปี ไม่มีประวัติแพ้ยา',
+    pe: 'GA: รู้สึกตัวดี ไม่ซีด ไม่เหลือง\nHEENT: anicteric sclera\nHeart: normal S1S2 no murmur\nLung: clear ทั้งสองข้าง\nAbd: ท้องอืดเล็กน้อย กดเจ็บ epigastrium และ LUQ ไม่มี guarding\nExt: no pitting edema\nNeuro: E4V5M6 pupil 3 mm RTLBE motor grade V',
+    problems: [
+      ['Acute pancreatitis (recurrent), BISAP 1', 'active', 5, 'สงสัยจากยา HCTZ/enalapril/simvastatin ddx autoimmune', 'NPO, IV hydration, งดยาที่สงสัย, consult GI นัด EUS แบบ OPD'],
+      ['AKI ddx pre-renal, septic ATN', 'active', 3, 'Cr ขึ้นจาก baseline 0.98 เป็น 3.25', 'IV hydration, ติดตาม Cr และปริมาณปัสสาวะทุกวัน, เลี่ยงยาที่มีพิษต่อไต'],
+      ['Transaminitis R/O DILI', 'monitoring', 3, 'AST/ALT ขึ้นตั้งแต่วันที่ 3 ยังไม่พบ culprit drug ชัดเจน', 'หยุด augmentin, เลี่ยงยาที่มีพิษต่อตับ, F/U LFT'],
+      ['Complicated UTI', 'active', 2, 'ปัสสาวะในสายสวนขุ่น UA WBC 50-100', 'เปลี่ยนสายสวน, Tazocin 4.5g IV q8h (ปรับตาม CrCl 22), consult Uro Sx'],
+      ['Liver mass segment VI with pancreatic cystic tumor', 'monitoring', 4, 'พบจาก CT whole abdomen', 'MDT conference แนะนำ liver biopsy, ออกใบนัดแล้ว'],
+    ],
+    ix: [
+      [4, 'imaging', 'CT whole abdomen', 'final', 'Liver mass ที่ segment VI ขนาด 5.1 x 3.8 x 2.5 ซม. ร่วมกับ pancreatic cystic tumor ที่ distal pancreas ไม่มี IHD dilatation'],
+      [5, 'imaging', 'U/S bedside', 'final', 'Well-defined round heterogenous mass ที่ left lobe ของตับ ไม่มี IHD dilatation ไต 2 ข้างและม้ามปกติ'],
+      [2, 'culture', 'Urine culture', 'final', 'ขึ้นเชื้อ 1 ชนิด', 'Citrobacter koseri', 'ceftriaxone, tazocin'],
+      [0, 'culture', 'Urine culture (ซ้ำหลังเปลี่ยนสายสวน)', 'pending', null],
+      [0, 'culture', 'Hemoculture x 2', 'pending', null],
+    ],
     events: [
       [5, 'diagnosis', 'Acute pancreatitis, BISAP 1', 'สงสัยจากยา HCTZ/enalapril/simvastatin'],
       [4, 'procedure', 'CT whole abdomen', 'พบ liver mass segment VI และ pancreatic cystic tumor'],
@@ -52,6 +71,21 @@ const CASES = [
     diagnosis: 'Congestive heart failure with R/O chronic coronary syndrome, AKI on CKD',
     treatment: 'Lasix 40 mg IV OD, ASA, จำกัดน้ำ 1200 ml/day, on O2 cannula 3 LPM',
     admit: 3,
+    underlying: '# HT\n# DLP\n# Old CVA\n# CKD stage 3',
+    cc: 'หายใจไม่อิ่ม 3 ชั่วโมงก่อนมา รพ.',
+    pi: '2 สัปดาห์ก่อนมา เหนื่อยมากขึ้นเป็นบางครั้ง ขาบวม นอนหนุนหมอนสูงขึ้น\n3 ชั่วโมงก่อนมา ขณะเข้าห้องน้ำมีเวียนศีรษะ หายใจไม่อิ่ม แน่นท้อง วัด SpO2 ปลายนิ้วได้ 80-90%',
+    ph: 'ไม่สูบบุหรี่ ไม่ดื่มสุรา',
+    pe: 'GA: รู้สึกตัวดี\nHEENT: not pale conjunctiva\nHeart: normal S1S2 no murmur\nLung: crepitation both lower lungs\nAbd: distension ไม่กดเจ็บ\nExt: pitting edema 2+ ทั้งสองข้าง',
+    problems: [
+      ['Acute decompensated heart failure', 'active', 3, 'CXR พบ cardiomegaly with pulmonary congestion', 'Lasix IV, จำกัดน้ำ 1200 ml/day, ชั่งน้ำหนักทุกเช้า'],
+      ['R/O chronic coronary syndrome', 'monitoring', 3, 'EKG พบ STD ที่ I, II, V4-V6 ไม่มี dynamic change, troponin ขึ้นเล็กน้อยแบบไม่มีแนวโน้มเพิ่ม', 'ASA ต่อ, consult cardio, รอ echocardiography'],
+      ['AKI on CKD', 'monitoring', 3, 'Cr 1.32 จาก baseline ประมาณ 1.1', 'ติดตาม Cr ระหว่างให้ diuretic'],
+    ],
+    ix: [
+      [3, 'imaging', 'CXR', 'final', 'Cardiomegaly with pulmonary congestion ไม่พบ infiltration ชัดเจน'],
+      [3, 'imaging', 'EKG 12 leads', 'final', 'Sinus rhythm rate 100 bpm, ST depression ที่ I, II, V4-V6 ไม่มี ST elevation และไม่มี dynamic change เทียบกับที่จุดเกิดเหตุ'],
+      [1, 'imaging', 'Echocardiography', 'pending', null],
+    ],
     events: [
       [3, 'diagnosis', 'Acute decompensated heart failure', 'CXR cardiomegaly with pulmonary congestion'],
       [3, 'procedure', 'EKG 12 leads', 'STD ที่ I, II, V4-V6 ไม่มี dynamic change'],
@@ -78,6 +112,22 @@ const CASES = [
     diagnosis: 'NSCLC T3N3M1 (adenocarcinoma, EGFR L858R+) with bone metastasis, right pleural effusion',
     treatment: 'Erlotinib ต่อเนื่อง, thoracocentesis, ceftriaxone + clindamycin, on HFNC, fentanyl patch',
     admit: 2,
+    underlying: '# NSCLC T3N3M1 adenocarcinoma EGFR L858R+ with bone metastasis\n# HT\n# T2DM\n# DLP\n# Hx pulmonary embolism on enoxaparin',
+    cc: 'เหนื่อยมากขึ้น 1 สัปดาห์ก่อนมา รพ.',
+    pi: 'เหนื่อยมากขึ้น 1 สัปดาห์ ไม่มีไข้ ไม่ไอเป็นเลือด เสมหะใสพอ ๆ เดิม นอนราบแล้วเหนื่อยต้องนอนหัวสูง ขาไม่บวม\n1 วันก่อนมา ปวดสะบักหลังขวามากจนนอนไม่ได้ ยังขยับแขนขวาได้ปกติ',
+    ph: 'Ex-smoker ปฏิเสธแพ้ยา ปกติมี home oxygen ใส่เวลาเหนื่อย เดือนนี้ยังไม่ได้ใส่',
+    pe: 'GA: รู้สึกตัวดี\nHEENT: not pale conjunctiva, anicteric sclera\nLung: rhonchi และ end expiratory wheezing ทั้งสองข้าง ไม่มี retraction\nHeart: normal S1S2 no murmur\nAbd: soft ไม่กดเจ็บ\nNeuro: E4V5M6 motor grade V ทุกแขนขา',
+    problems: [
+      ['Right pleural effusion ddx malignant vs infection', 'active', 2, 'เจาะได้ fluid 120 ml ส่งตรวจครบชุด', 'Thoracocentesis, รอผล cytology และ ADA, ATB ceftriaxone + clindamycin'],
+      ['NSCLC progression', 'monitoring', 2, 'CT chest + WA ล่าสุดเข้าได้กับ progressive disease', 'อธิบายโรคและการพยากรณ์กับผู้ป่วยและญาติ, ประสาน chest med เรื่องแผนต่อ'],
+      ['Cancer pain', 'active', 2, 'ปวดสะบักหลังขวาจาก bone metastasis', 'Fentanyl patch 25 mcg 2 แผ่น q72h ประเมิน pain score ทุกเวร'],
+    ],
+    ix: [
+      [2, 'imaging', 'U/S bedside', 'final', 'Good LVEF, ไม่มี RV dilatation, B-line ทั้งสองข้าง, pleural effusion ทั้งสองข้าง, IVC max 1.05 min 0.56'],
+      [2, 'patho', 'Pleural fluid cytology', 'pending', null],
+      [2, 'other', 'Pleural fluid ADA + cell count', 'pending', null],
+      [1, 'culture', 'Sputum G/S + C/S', 'final', 'Gram stain พบ moderate leukocyte', 'ไม่พบเชื้อ', null],
+    ],
     events: [
       [2, 'diagnosis', 'Dyspnea จาก pleural effusion', 'DDx CA metastasis vs infection'],
       [2, 'procedure', 'Thoracocentesis', 'ได้ fluid 120 ml ส่ง cell count, G/S, C/S, LDH, protein, cytology'],
@@ -203,7 +253,7 @@ function reset() {
 }
 
 function seed() {
-  let counts = { patients: 0, soap: 0, vitals: 0, labs: 0, events: 0 };
+  let counts = { patients: 0, soap: 0, vitals: 0, labs: 0, events: 0, problems: 0, ix: 0 };
   for (const c of CASES) {
     const patient = store.createPatient({
       bed: c.bed, initials: c.initials, age: c.age, sex: c.sex,
@@ -211,6 +261,26 @@ function seed() {
       admitted_at: d(c.admit),
     }, BY);
     counts.patients++;
+
+    if (c.underlying || c.cc || c.pi || c.ph || c.pe) {
+      store.updatePatient(patient.id, {
+        underlying: c.underlying ?? null,
+        chief_complaint: c.cc ?? null,
+        present_illness: c.pi ?? null,
+        past_history: c.ph ?? null,
+        physical_exam: c.pe ?? null,
+      }, BY);
+    }
+    for (const [title, status, back, detail, plan] of c.problems ?? []) {
+      store.createProblem(patient.id, { title, status, started_at: d(back), detail, plan }, BY);
+      counts.problems++;
+    }
+    for (const [back, category, name, status, result, organism, sensitivity] of c.ix ?? []) {
+      store.createInvestigation(patient.id, {
+        performed_at: d(back), category, name, status, result, organism, sensitivity,
+      }, BY);
+      counts.ix++;
+    }
 
     store.createEvent(patient.id, {
       occurred_at: d(c.admit), kind: 'admit', title: 'Admit เข้าหอผู้ป่วย', detail: c.diagnosis,
@@ -244,6 +314,6 @@ function seed() {
 if (require.main === module) {
   if (process.argv.includes('--reset')) reset();
   const counts = seed();
-  console.log(`ใส่ข้อมูลตัวอย่างแล้ว: ผู้ป่วย ${counts.patients} ราย, SOAP ${counts.soap}, V/S ${counts.vitals} ชุด, Lab ${counts.labs} ค่า, เหตุการณ์ ${counts.events}`);
+  console.log(`ใส่ข้อมูลตัวอย่างแล้ว: ผู้ป่วย ${counts.patients} ราย, SOAP ${counts.soap}, V/S ${counts.vitals} ชุด, Lab ${counts.labs} ค่า, เหตุการณ์ ${counts.events}, ปัญหา ${counts.problems}, ผลตรวจ ${counts.ix}`);
   console.log('ทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง — ลบทั้งหมดได้ด้วย node seed.js --reset');
 }

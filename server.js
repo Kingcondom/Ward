@@ -307,6 +307,70 @@ async function handleApi(req, res, url, session) {
     return json(res, 200, { ok: true });
   }
 
+  // Problem list
+  m = /^\/api\/patients\/([\w-]+)\/problems$/.exec(p);
+  if (m) {
+    if (method === 'GET') return json(res, 200, store.listProblems(m[1]));
+    if (method === 'POST') {
+      const body = await readBody(req);
+      if (!String(body.title ?? '').trim()) return json(res, 400, { error: 'ต้องระบุชื่อปัญหา' });
+      const row = store.createProblem(m[1], body, user);
+      if (!row) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('problems:changed', { patient_id: m[1], by: user });
+      broadcast('patient:refresh', { patient_id: m[1], by: user });
+      return json(res, 201, row);
+    }
+  }
+  m = /^\/api\/problems\/([\w-]+)$/.exec(p);
+  if (m) {
+    if (method === 'PATCH') {
+      const row = store.updateProblem(m[1], await readBody(req), user);
+      if (!row) return json(res, 404, { error: 'ไม่พบปัญหานี้' });
+      broadcast('problems:changed', { patient_id: row.patient_id, by: user });
+      broadcast('patient:refresh', { patient_id: row.patient_id, by: user });
+      return json(res, 200, row);
+    }
+    if (method === 'DELETE') {
+      const row = store.deleteProblem(m[1]);
+      if (!row) return json(res, 404, { error: 'ไม่พบปัญหานี้' });
+      broadcast('problems:changed', { patient_id: row.patient_id, by: user });
+      broadcast('patient:refresh', { patient_id: row.patient_id, by: user });
+      return json(res, 200, { ok: true });
+    }
+  }
+
+  // Investigation: imaging / patho / culture
+  m = /^\/api\/patients\/([\w-]+)\/investigations$/.exec(p);
+  if (m) {
+    if (method === 'GET') return json(res, 200, store.listInvestigations(m[1]));
+    if (method === 'POST') {
+      const body = await readBody(req);
+      if (!String(body.name ?? '').trim()) return json(res, 400, { error: 'ต้องระบุชื่อการตรวจ' });
+      const row = store.createInvestigation(m[1], body, user);
+      if (!row) return json(res, 404, { error: 'ไม่พบผู้ป่วย' });
+      broadcast('ix:changed', { patient_id: m[1], by: user });
+      broadcast('patient:refresh', { patient_id: m[1], by: user });
+      return json(res, 201, row);
+    }
+  }
+  m = /^\/api\/investigations\/([\w-]+)$/.exec(p);
+  if (m) {
+    if (method === 'PATCH') {
+      const row = store.updateInvestigation(m[1], await readBody(req), user);
+      if (!row) return json(res, 404, { error: 'ไม่พบผลตรวจนี้' });
+      broadcast('ix:changed', { patient_id: row.patient_id, by: user });
+      broadcast('patient:refresh', { patient_id: row.patient_id, by: user });
+      return json(res, 200, row);
+    }
+    if (method === 'DELETE') {
+      const row = store.deleteInvestigation(m[1]);
+      if (!row) return json(res, 404, { error: 'ไม่พบผลตรวจนี้' });
+      broadcast('ix:changed', { patient_id: row.patient_id, by: user });
+      broadcast('patient:refresh', { patient_id: row.patient_id, by: user });
+      return json(res, 200, { ok: true });
+    }
+  }
+
   // ค่าอ้างอิงสำหรับไฮไลต์ค่าผิดปกติ
   if (p === '/api/ranges' && method === 'GET') {
     return json(res, 200, { vitals: VITAL_RANGES, labs: LAB_RANGES });

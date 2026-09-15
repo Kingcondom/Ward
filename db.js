@@ -111,6 +111,48 @@ const MIGRATIONS = [
     const hasHn = db.prepare("PRAGMA table_info(patients)").all().some((c) => c.name === 'hn');
     if (hasHn) db.exec('ALTER TABLE patients DROP COLUMN hn');
   },
+
+  // 4 — ประวัติแรกรับ, Problem list และผล investigation (imaging / patho / culture)
+  `
+  ALTER TABLE patients ADD COLUMN underlying TEXT;
+  ALTER TABLE patients ADD COLUMN chief_complaint TEXT;
+  ALTER TABLE patients ADD COLUMN present_illness TEXT;
+  ALTER TABLE patients ADD COLUMN past_history TEXT;
+  ALTER TABLE patients ADD COLUMN physical_exam TEXT;
+
+  CREATE TABLE IF NOT EXISTS problems (
+    id          TEXT PRIMARY KEY,
+    patient_id  TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    title       TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'active',   -- active | monitoring | resolved
+    detail      TEXT,                             -- assessment / สาเหตุ / DDx
+    plan        TEXT,                             -- Mx ของปัญหานี้
+    started_at  TEXT,
+    resolved_at TEXT,
+    position    INTEGER NOT NULL DEFAULT 0,
+    author      TEXT,
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_problems_patient ON problems(patient_id, status, position);
+
+  CREATE TABLE IF NOT EXISTS investigations (
+    id           TEXT PRIMARY KEY,
+    patient_id   TEXT NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    performed_at TEXT NOT NULL,
+    category     TEXT NOT NULL DEFAULT 'imaging', -- imaging | patho | culture | other
+    name         TEXT NOT NULL,                   -- CXR, CT chest, EGD, U/C, sputum G/S
+    status       TEXT NOT NULL DEFAULT 'final',   -- final | pending
+    result       TEXT,
+    organism     TEXT,                            -- เฉพาะ culture
+    sensitivity  TEXT,                            -- เฉพาะ culture
+    author       TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_ix_patient ON investigations(patient_id, performed_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_ix_pending ON investigations(status);
+  `,
 ];
 
 function migrate() {
@@ -138,7 +180,10 @@ const newId = () => crypto.randomUUID();
 
 /* ---------- patients ---------- */
 
-const PATIENT_FIELDS = ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'status', 'admitted_at', 'discharged_at'];
+const PATIENT_FIELDS = [
+  'bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'status', 'admitted_at', 'discharged_at',
+  'underlying', 'chief_complaint', 'present_illness', 'past_history', 'physical_exam',
+];
 
 function listPatients({ includeDischarged = false } = {}) {
   const sql = includeDischarged
@@ -147,10 +192,16 @@ function listPatients({ includeDischarged = false } = {}) {
   const rows = db.prepare(sql).all();
   const counts = db.prepare('SELECT patient_id, COUNT(*) n, MAX(note_date) last_date FROM soap_notes GROUP BY patient_id').all();
   const byId = new Map(counts.map((c) => [c.patient_id, c]));
+  const active = db.prepare("SELECT patient_id, COUNT(*) n FROM problems WHERE status != 'resolved' GROUP BY patient_id").all();
+  const problemById = new Map(active.map((c) => [c.patient_id, c.n]));
+  const pending = db.prepare("SELECT patient_id, COUNT(*) n FROM investigations WHERE status = 'pending' GROUP BY patient_id").all();
+  const pendingById = new Map(pending.map((c) => [c.patient_id, c.n]));
   return rows.map((r) => ({
     ...r,
     soap_count: byId.get(r.id)?.n ?? 0,
     last_soap_date: byId.get(r.id)?.last_date ?? null,
+    active_problems: problemById.get(r.id) ?? 0,
+    pending_ix: pendingById.get(r.id) ?? 0,
   }));
 }
 
@@ -355,7 +406,105 @@ function deleteEvent(id) {
   return row ?? null;
 }
 
-// รวมเหตุการณ์ + SOAP เป็นเส้นเวลาเดียว เรียงใหม่ไปเก่า
+
+/* ---------- problem list ---------- */
+
+function listProblems(patientId) {
+  return db.prepare(`SELECT * FROM problems WHERE patient_id = ?
+    ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'monitoring' THEN 1 ELSE 2 END, position, created_at`).all(patientId);
+}
+
+function createProblem(patientId, input, user) {
+  if (!getPatient(patientId)) return null;
+  const ts = nowISO();
+  const id = newId();
+  const next = db.prepare('SELECT COALESCE(MAX(position), 0) + 1 n FROM problems WHERE patient_id = ?').get(patientId).n;
+  db.prepare(`INSERT INTO problems
+    (id, patient_id, title, status, detail, plan, started_at, position, author, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
+    id, patientId, String(input.title ?? '').trim(), input.status || 'active',
+    input.detail ?? null, input.plan ?? null, input.started_at || ts.slice(0, 10),
+    next, input.author || user || null, ts, ts,
+  );
+  return db.prepare('SELECT * FROM problems WHERE id = ?').get(id);
+}
+
+function updateProblem(id, input, user) {
+  const current = db.prepare('SELECT * FROM problems WHERE id = ?').get(id);
+  if (!current) return null;
+  const sets = [];
+  const values = [];
+  for (const f of ['title', 'status', 'detail', 'plan', 'started_at']) {
+    if (Object.prototype.hasOwnProperty.call(input, f)) {
+      sets.push(`${f} = ?`);
+      values.push(input[f] === '' ? null : input[f]);
+    }
+  }
+  // ปิดปัญหาเมื่อไหร่ ให้บันทึกวันที่ปิดไว้ด้วย และเคลียร์ถ้ากลับมา active
+  if (input.status === 'resolved' && current.status !== 'resolved') {
+    sets.push('resolved_at = ?');
+    values.push(nowISO().slice(0, 10));
+  } else if (input.status && input.status !== 'resolved') {
+    sets.push('resolved_at = NULL');
+  }
+  sets.push('author = ?', 'updated_at = ?');
+  values.push(input.author || current.author || user || null, nowISO(), id);
+  db.prepare(`UPDATE problems SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  return db.prepare('SELECT * FROM problems WHERE id = ?').get(id);
+}
+
+function deleteProblem(id) {
+  const row = db.prepare('SELECT * FROM problems WHERE id = ?').get(id);
+  db.prepare('DELETE FROM problems WHERE id = ?').run(id);
+  return row ?? null;
+}
+
+/* ---------- investigations: imaging / patho / culture ---------- */
+
+function listInvestigations(patientId) {
+  return db.prepare('SELECT * FROM investigations WHERE patient_id = ? ORDER BY performed_at DESC, created_at DESC').all(patientId);
+}
+
+function createInvestigation(patientId, input, user) {
+  if (!getPatient(patientId)) return null;
+  const ts = nowISO();
+  const id = newId();
+  db.prepare(`INSERT INTO investigations
+    (id, patient_id, performed_at, category, name, status, result, organism, sensitivity, author, created_at, updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    id, patientId, input.performed_at || ts.slice(0, 10),
+    input.category || 'imaging', String(input.name ?? '').trim(),
+    input.status || 'final', input.result ?? null,
+    input.organism ?? null, input.sensitivity ?? null,
+    input.author || user || null, ts, ts,
+  );
+  return db.prepare('SELECT * FROM investigations WHERE id = ?').get(id);
+}
+
+function updateInvestigation(id, input, user) {
+  const current = db.prepare('SELECT * FROM investigations WHERE id = ?').get(id);
+  if (!current) return null;
+  const sets = [];
+  const values = [];
+  for (const f of ['performed_at', 'category', 'name', 'status', 'result', 'organism', 'sensitivity']) {
+    if (Object.prototype.hasOwnProperty.call(input, f)) {
+      sets.push(`${f} = ?`);
+      values.push(input[f] === '' ? null : input[f]);
+    }
+  }
+  sets.push('author = ?', 'updated_at = ?');
+  values.push(input.author || current.author || user || null, nowISO(), id);
+  db.prepare(`UPDATE investigations SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+  return db.prepare('SELECT * FROM investigations WHERE id = ?').get(id);
+}
+
+function deleteInvestigation(id) {
+  const row = db.prepare('SELECT * FROM investigations WHERE id = ?').get(id);
+  db.prepare('DELETE FROM investigations WHERE id = ?').run(id);
+  return row ?? null;
+}
+
+// รวมเหตุการณ์ + SOAP + ผล investigation เป็นเส้นเวลาเดียว เรียงใหม่ไปเก่า
 function timeline(patientId) {
   const events = listEvents(patientId).map((e) => ({
     at: e.occurred_at, kind: e.kind, title: e.title, detail: e.detail,
@@ -367,7 +516,14 @@ function timeline(patientId) {
       n.assessment && `A: ${n.assessment}`, n.plan && `P: ${n.plan}`].filter(Boolean).join('\n'),
     author: n.author, auto: 0, id: n.id, type: 'soap',
   }));
-  return [...events, ...notes].sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const ix = listInvestigations(patientId).map((i) => ({
+    at: i.performed_at, kind: i.category, title: i.name,
+    detail: [i.status === 'pending' ? 'รอผล' : i.result,
+      i.organism && `เชื้อ: ${i.organism}`,
+      i.sensitivity && `ไวต่อ: ${i.sensitivity}`].filter(Boolean).join('\n'),
+    author: i.author, auto: 0, id: i.id, type: 'investigation',
+  }));
+  return [...events, ...notes, ...ix].sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
 module.exports = {
@@ -377,4 +533,6 @@ module.exports = {
   listVitals, createVitals, deleteVitals,
   listLabs, createLab, deleteLab,
   listEvents, createEvent, deleteEvent, timeline,
+  listProblems, createProblem, updateProblem, deleteProblem,
+  listInvestigations, createInvestigation, updateInvestigation, deleteInvestigation,
 };
