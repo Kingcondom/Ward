@@ -139,6 +139,12 @@ function connectStream() {
     if (touched(by)) toast(`${by} ลบผู้ป่วย 1 ราย`);
   });
 
+  stream.addEventListener('cases:imported', async (e) => {
+    const { beds, by } = JSON.parse(e.data);
+    await refresh();
+    if (by && by !== state.user) toast(`${by} นำเข้าเคสใหม่ ${beds.length} เตียง`);
+  });
+
   for (const ev of ['vitals:changed', 'labs:changed', 'timeline:changed', 'problems:changed', 'ix:changed']) {
     stream.addEventListener(ev, async (e) => {
       const { patient_id: pid, by } = JSON.parse(e.data);
@@ -910,6 +916,68 @@ function renderImportPreview(parsed) {
     showTab('trend');
   });
 }
+
+
+/* ---------------- นำเข้าเคสทั้งชุดจากไฟล์ JSON ---------------- */
+$('#case-file').addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  const box = $('#case-preview');
+  if (!file) { box.innerHTML = ''; return; }
+  let bundle;
+  try {
+    bundle = JSON.parse(await file.text());
+  } catch {
+    box.innerHTML = '<p class="error">อ่านไฟล์ไม่ได้ — ไฟล์นี้ไม่ใช่ JSON ที่ถูกต้อง</p>';
+    return;
+  }
+  const cases = Array.isArray(bundle.cases) ? bundle.cases : null;
+  if (!cases?.length) {
+    box.innerHTML = '<p class="error">ไฟล์นี้ไม่มีรายการเคส (ต้องมีคีย์ “cases”)</p>';
+    return;
+  }
+  const rows = cases.map((c) => `<li><b>เตียง ${esc(c.bed)}</b> ${esc(c.initials ?? '')}
+    <span class="muted">${esc(String(c.diagnosis ?? '').split('\n')[0].slice(0, 70))}</span>
+    <small class="muted">· ปัญหา ${(c.problems ?? []).length} · ผลตรวจ ${(c.investigations ?? []).length}
+    · lab ${(c.labs ?? []).length} ค่า</small></li>`).join('');
+  box.innerHTML = `<div class="import-box">
+    <p>พบ <b>${cases.length} เคส</b> ในไฟล์นี้</p>
+    <ul class="case-list">${rows}</ul>
+    <label class="check"><input type="checkbox" id="case-replace"> เขียนทับถ้าเตียงนั้นมีผู้ป่วยอยู่แล้ว</label>
+    <div class="row">
+      <button class="primary" id="btn-case-save">นำเข้าทั้งหมด</button>
+      <button class="ghost" id="btn-case-cancel">ยกเลิก</button>
+    </div>
+  </div>`;
+
+  $('#btn-case-cancel').addEventListener('click', () => {
+    box.innerHTML = '';
+    $('#case-file').value = '';
+  });
+
+  $('#btn-case-save').addEventListener('click', async (ev) => {
+    const btn = ev.target;
+    btn.disabled = true;
+    btn.textContent = 'กำลังนำเข้า…';
+    try {
+      const r = await api('POST', '/api/cases/import', { cases, replace: $('#case-replace').checked });
+      const parts = [];
+      if (r.added.length) parts.push(`เพิ่ม ${r.added.length} เตียง (${r.added.join(', ')})`);
+      if (r.skipped.length) parts.push(`ข้าม ${r.skipped.length} เตียงที่มีคนอยู่แล้ว (${r.skipped.join(', ')})`);
+      if (r.failed.length) parts.push(`ไม่สำเร็จ ${r.failed.length} เตียง`);
+      box.innerHTML = `<div class="import-box">
+        <p>${r.added.length ? '✅' : 'ℹ️'} ${esc(parts.join(' · '))}</p>
+        ${r.skipped.length ? '<p class="muted">ถ้าต้องการเขียนทับ ให้ติ๊กช่องเขียนทับแล้วเลือกไฟล์ใหม่อีกครั้ง</p>' : ''}
+        ${r.failed.map((f) => `<p class="error">เตียง ${esc(f.bed)}: ${esc(f.reason)}</p>`).join('')}
+      </div>`;
+      $('#case-file').value = '';
+      await refresh();
+    } catch (ex) {
+      btn.disabled = false;
+      btn.textContent = 'นำเข้าทั้งหมด';
+      toast(ex.message);
+    }
+  });
+});
 
 /* ---------------- rounds ---------------- */
 $('#btn-rounds').addEventListener('click', () => {

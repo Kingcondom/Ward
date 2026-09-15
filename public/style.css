@@ -269,3 +269,8 @@ td.high, td.low { color: var(--flag-critical); font-weight: 600; }
   border: 1px solid color-mix(in srgb, var(--flag-warning) 35%, var(--line));
 }
 .culture-only { border-left: 2px solid var(--line); padding-left: .6rem; margin-bottom: .6rem; }
+
+.case-list { margin: .5rem 0; padding-left: 1.1rem; font-size: .86rem; }
+.case-list li { margin: .3rem 0; }
+.case-list small { display: block; font-size: .74rem; }
+input[type=file] { padding: .45rem; background: var(--card); }
