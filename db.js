@@ -1,4 +1,14 @@
 'use strict';
+
+// ระบบใช้ node:sqlite ที่ติดมากับ Node ตั้งแต่ 22.5 ขึ้นไป
+// ถ้า Node เก่ากว่านี้จะ error แบบอ่านไม่รู้เรื่อง จึงเช็กและบอกให้ชัดก่อน
+const [major, minor] = process.versions.node.split('.').map(Number);
+if (major < 22 || (major === 22 && minor < 5)) {
+  console.error(`\nWard ต้องใช้ Node.js 22.5 ขึ้นไป แต่เครื่องนี้เป็น ${process.versions.node}`);
+  console.error('ติดตั้ง Node เวอร์ชันใหม่จาก https://nodejs.org แล้วลองใหม่อีกครั้ง\n');
+  process.exit(1);
+}
+
 const { DatabaseSync } = require('node:sqlite');
 const path = require('node:path');
 const fs = require('node:fs');

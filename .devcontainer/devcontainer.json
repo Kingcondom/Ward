@@ -1,0 +1,26 @@
+{
+  "name": "Ward",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
+
+  "forwardPorts": [3000],
+  "portsAttributes": {
+    "3000": {
+      "label": "Ward",
+      "onAutoForward": "openBrowser"
+    }
+  },
+
+  // ครั้งแรกที่สร้าง codespace: ใส่ข้อมูลตัวอย่างให้ลองใช้ทันที
+  "postCreateCommand": "node seed.js",
+
+  // ทุกครั้งที่เปิด codespace: สตาร์ทเซิร์ฟเวอร์แล้วหน้าเว็บจะเด้งขึ้นเอง
+  "postAttachCommand": "npm start",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
