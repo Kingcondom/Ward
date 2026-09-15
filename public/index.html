@@ -80,6 +80,8 @@
       <button class="tab active" data-tab="info">ข้อมูล</button>
       <button class="tab" data-tab="soap">SOAP</button>
       <button class="tab" data-tab="trend">V/S &amp; Lab</button>
+      <button class="tab" data-tab="problems">ปัญหา</button>
+      <button class="tab" data-tab="ix">Ix</button>
       <button class="tab" data-tab="timeline">Timeline</button>
       <button class="tab" data-tab="import">นำเข้า</button>
     </nav>
@@ -101,6 +103,26 @@
           <label>Diagnosis<textarea name="diagnosis" rows="2"></textarea></label>
           <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
           <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
+
+          <details class="subsection">
+            <summary>ประวัติแรกรับ (U/D, CC, PI, PE)</summary>
+            <label>โรคประจำตัว / Underlying disease
+              <textarea name="underlying" rows="3" placeholder="# HT&#10;# DLP&#10;# CKD stage 4"></textarea>
+            </label>
+            <label>อาการสำคัญ / Chief complaint
+              <textarea name="chief_complaint" rows="2" placeholder="ปวดท้องใต้ลิ้นปี่ 13 ชม. ก่อนมา รพ."></textarea>
+            </label>
+            <label>ประวัติปัจจุบัน / Present illness
+              <textarea name="present_illness" rows="5"></textarea>
+            </label>
+            <label>ประวัติอดีต / Past history <span class="muted">(สูบบุหรี่ สุรา ประวัติผ่าตัด ประวัติครอบครัว)</span>
+              <textarea name="past_history" rows="3"></textarea>
+            </label>
+            <label>ตรวจร่างกายแรกรับ / Physical exam
+              <textarea name="physical_exam" rows="5" placeholder="GA:&#10;HEENT:&#10;Heart:&#10;Lung:&#10;Abd:&#10;Ext:&#10;Neuro:"></textarea>
+            </label>
+          </details>
+
           <div class="row">
             <button class="primary" type="submit">บันทึกข้อมูล</button>
             <button type="button" id="btn-discharge" class="ghost">D/C</button>
@@ -184,6 +206,80 @@
           </form>
           <div id="lab-charts" class="charts"></div>
           <details id="lab-table-wrap"><summary>ดูเป็นตาราง</summary><div id="lab-table"></div></details>
+        </div>
+      </section>
+
+      <!-- ---- Problem list ---- -->
+      <section class="panel" data-panel="problems" hidden>
+        <div class="card">
+          <div class="row">
+            <h3>Problem list</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-problem" class="primary">+ เพิ่มปัญหา</button>
+          </div>
+          <form id="problem-form" class="note-form" hidden>
+            <input type="hidden" name="id">
+            <label>ปัญหา<input name="title" required placeholder="เช่น Complicated UTI"></label>
+            <div class="grid">
+              <label>สถานะ
+                <select name="status">
+                  <option value="active">กำลังรักษา</option>
+                  <option value="monitoring">เฝ้าติดตาม</option>
+                  <option value="resolved">แก้ไขแล้ว</option>
+                </select>
+              </label>
+              <label>เริ่มเมื่อ<input name="started_at" type="date"></label>
+            </div>
+            <label>รายละเอียด / สาเหตุ / DDx<textarea name="detail" rows="3"></textarea></label>
+            <label>แผนการรักษา (Mx)<textarea name="plan" rows="3"></textarea></label>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก</button>
+              <button type="button" class="ghost" data-cancel="problem-form">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="problem-list" class="problem-list"></div>
+        </div>
+      </section>
+
+      <!-- ---- Investigation ---- -->
+      <section class="panel" data-panel="ix" hidden>
+        <div class="card">
+          <div class="row">
+            <h3>Imaging / Patho / Culture</h3>
+            <span class="spacer"></span>
+            <button id="btn-new-ix" class="primary">+ เพิ่มผลตรวจ</button>
+          </div>
+          <form id="ix-form" class="note-form" hidden>
+            <input type="hidden" name="id">
+            <div class="grid">
+              <label>วันที่<input name="performed_at" type="date" required></label>
+              <label>ประเภท
+                <select name="category">
+                  <option value="imaging">Imaging (CXR, CT, U/S, EGD, EKG)</option>
+                  <option value="culture">Culture / ความไวต่อยา</option>
+                  <option value="patho">ผลชิ้นเนื้อ / Cytology</option>
+                  <option value="other">อื่น ๆ</option>
+                </select>
+              </label>
+              <label>สถานะ
+                <select name="status">
+                  <option value="final">ได้ผลแล้ว</option>
+                  <option value="pending">รอผล</option>
+                </select>
+              </label>
+            </div>
+            <label>ชื่อการตรวจ<input name="name" required placeholder="เช่น CT whole abdomen, Urine culture"></label>
+            <label>ผล / Impression<textarea name="result" rows="4"></textarea></label>
+            <div class="culture-only" hidden>
+              <label>เชื้อที่ขึ้น<input name="organism" placeholder="เช่น Citrobacter koseri"></label>
+              <label>ไวต่อยา<input name="sensitivity" placeholder="เช่น ceftriaxone, tazocin"></label>
+            </div>
+            <div class="row">
+              <button class="primary" type="submit">บันทึก</button>
+              <button type="button" class="ghost" data-cancel="ix-form">ยกเลิก</button>
+            </div>
+          </form>
+          <div id="ix-list" class="ix-list"></div>
         </div>
       </section>
 

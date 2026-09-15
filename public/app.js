@@ -12,6 +12,8 @@ const state = {
   vitals: [],
   labs: [],
   timeline: [],
+  problems: [],
+  investigations: [],
   ranges: { vitals: {}, labs: {} },
   tab: 'info',
   parsed: null,
@@ -126,6 +128,9 @@ function connectStream() {
     if (touched(by)) toast(`${by} แก้ข้อมูลเตียง ${patient.bed}`);
   });
 
+  // จำนวนปัญหา active และผลที่รออยู่ โชว์บนการ์ดเตียง จึงต้องรีเฟรชกระดานด้วย
+  stream.addEventListener('patient:refresh', async () => { await refresh({ keepOpen: false }); });
+
   stream.addEventListener('patient:deleted', (e) => {
     const { id, by } = JSON.parse(e.data);
     state.patients = state.patients.filter((p) => p.id !== id);
@@ -134,7 +139,7 @@ function connectStream() {
     if (touched(by)) toast(`${by} ลบผู้ป่วย 1 ราย`);
   });
 
-  for (const ev of ['vitals:changed', 'labs:changed', 'timeline:changed']) {
+  for (const ev of ['vitals:changed', 'labs:changed', 'timeline:changed', 'problems:changed', 'ix:changed']) {
     stream.addEventListener(ev, async (e) => {
       const { patient_id: pid, by } = JSON.parse(e.data);
       if (state.openId === pid) await loadClinical(pid);
@@ -216,6 +221,8 @@ function render() {
         ${dc ? `<span class="badge">D/C ${esc(p.discharged_at ?? '')}</span>`
               : done ? '<span class="badge ok">✓ SOAP วันนี้</span>' : '<span class="badge warn">ยังไม่มี SOAP วันนี้</span>'}
         ${p.allergy ? `<span class="badge allergy">แพ้ ${esc(p.allergy)}</span>` : ''}
+        ${p.active_problems ? `<span class="badge">${p.active_problems} ปัญหา</span>` : ''}
+        ${p.pending_ix ? `<span class="badge warn">⏳ รอผล ${p.pending_ix}</span>` : ''}
         <span class="badge">SOAP ${p.soap_count} ครั้ง</span>
       </div>
     </article>`;
@@ -240,7 +247,8 @@ $('#show-discharged').addEventListener('change', () => refresh({ keepOpen: true 
 /* ---------------- patient drawer ---------------- */
 function fillPatientForm(p) {
   const f = $('#patient-form');
-  for (const k of ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'admitted_at']) {
+  for (const k of ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'admitted_at',
+    'underlying', 'chief_complaint', 'present_illness', 'past_history', 'physical_exam']) {
     if (f.elements[k]) f.elements[k].value = p[k] ?? '';
   }
   $('#d-bed').textContent = `เตียง ${p.bed}`;
@@ -266,18 +274,24 @@ async function openPatient(id, { silent = false } = {}) {
 }
 
 async function loadClinical(id) {
-  const [vitals, labs, timeline] = await Promise.all([
+  const [vitals, labs, timeline, problems, investigations] = await Promise.all([
     api('GET', `/api/patients/${id}/vitals`),
     api('GET', `/api/patients/${id}/labs`),
     api('GET', `/api/patients/${id}/timeline`),
+    api('GET', `/api/patients/${id}/problems`),
+    api('GET', `/api/patients/${id}/investigations`),
   ]);
   if (state.openId !== id) return;      // ผู้ใช้เปลี่ยนผู้ป่วยระหว่างโหลด
   state.vitals = vitals;
   state.labs = labs;
   state.timeline = timeline;
+  state.problems = problems;
+  state.investigations = investigations;
   renderVitals();
   renderLabs();
   renderTimeline();
+  renderProblems();
+  renderInvestigations();
 }
 
 /* ---------------- tabs ---------------- */
@@ -299,6 +313,8 @@ function closeDrawer() {
   state.vitals = [];
   state.labs = [];
   state.timeline = [];
+  state.problems = [];
+  state.investigations = [];
   $('#note-form').hidden = true;
 }
 
@@ -661,6 +677,152 @@ document.addEventListener('click', async (e) => {
       if (confirm('ลบค่า V/S ชุดนี้?')) await api('DELETE', `/api/vitals/${t.dataset.delVitals}`);
     } else if (t.dataset?.delEvent) {
       if (confirm('ลบเหตุการณ์นี้?')) await api('DELETE', `/api/events/${t.dataset.delEvent}`);
+    }
+  } catch (ex) { toast(ex.message); }
+});
+
+
+/* ================= Problem list ================= */
+
+const PROBLEM_STATUS = {
+  active: { text: 'กำลังรักษา', cls: 'active' },
+  monitoring: { text: 'เฝ้าติดตาม', cls: 'monitoring' },
+  resolved: { text: 'แก้ไขแล้ว', cls: 'resolved' },
+};
+
+function renderProblems() {
+  const box = $('#problem-list');
+  if (!state.problems.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มี problem list</p>';
+    return;
+  }
+  box.innerHTML = state.problems.map((pb, i) => {
+    const st = PROBLEM_STATUS[pb.status] ?? PROBLEM_STATUS.active;
+    return `<div class="problem st-${st.cls}">
+      <div class="problem-head">
+        <span class="problem-no">${i + 1}</span>
+        <b>${esc(pb.title)}</b>
+        <span class="badge ${st.cls}">${st.text}</span>
+        <span class="spacer"></span>
+        <button class="ghost mini" data-edit-problem="${pb.id}">แก้ไข</button>
+        <button class="danger mini" data-del-problem="${pb.id}">ลบ</button>
+      </div>
+      <div class="muted problem-date">${pb.started_at ? `เริ่ม ${esc(pb.started_at)}` : ''}${
+        pb.resolved_at ? ` · ปิด ${esc(pb.resolved_at)}` : ''}${pb.author ? ` · ${esc(pb.author)}` : ''}</div>
+      ${pb.detail ? `<p class="problem-body">${esc(pb.detail)}</p>` : ''}
+      ${pb.plan ? `<p class="problem-body plan"><b>Mx:</b> ${esc(pb.plan)}</p>` : ''}
+    </div>`;
+  }).join('');
+}
+
+$('#btn-new-problem').addEventListener('click', () => {
+  const f = openSubForm('#problem-form', { started_at: today(), status: 'active' });
+  f.elements.id.value = '';
+  f.elements.title.focus();
+});
+
+$('#problem-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = formData(e.target);
+  const id = body.id;
+  delete body.id;
+  try {
+    if (id) await api('PATCH', `/api/problems/${id}`, body);
+    else await api('POST', `/api/patients/${state.openId}/problems`, body);
+    e.target.hidden = true;
+    toast('บันทึกปัญหาแล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+/* ================= Investigation ================= */
+
+const IX_CATEGORY = {
+  imaging: { icon: '🩻', text: 'Imaging' },
+  culture: { icon: '🧫', text: 'Culture' },
+  patho: { icon: '🔬', text: 'ผลชิ้นเนื้อ' },
+  other: { icon: '📄', text: 'อื่น ๆ' },
+};
+
+function renderInvestigations() {
+  const box = $('#ix-list');
+  if (!state.investigations.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มีผล imaging / patho / culture</p>';
+    return;
+  }
+  const pending = state.investigations.filter((i) => i.status === 'pending');
+  const head = pending.length
+    ? `<p class="pending-note">⏳ รอผลอยู่ ${pending.length} รายการ — ${
+        esc(pending.map((i) => i.name).join(', '))}</p>`
+    : '';
+  box.innerHTML = head + state.investigations.map((ix) => {
+    const cat = IX_CATEGORY[ix.category] ?? IX_CATEGORY.other;
+    return `<div class="ix ${ix.status === 'pending' ? 'pending' : ''}">
+      <div class="ix-head">
+        <span aria-hidden="true">${cat.icon}</span>
+        <b>${esc(ix.name)}</b>
+        <span class="badge">${cat.text}</span>
+        ${ix.status === 'pending' ? '<span class="badge warn">⏳ รอผล</span>' : ''}
+        <span class="spacer"></span>
+        <span class="muted">${esc(ix.performed_at)}</span>
+        <button class="ghost mini" data-edit-ix="${ix.id}">แก้ไข</button>
+        <button class="danger mini" data-del-ix="${ix.id}">ลบ</button>
+      </div>
+      ${ix.result ? `<p class="ix-result">${esc(ix.result)}</p>` : ''}
+      ${ix.organism ? `<p class="ix-result"><b>เชื้อ:</b> ${esc(ix.organism)}</p>` : ''}
+      ${ix.sensitivity ? `<p class="ix-result"><b>ไวต่อ:</b> ${esc(ix.sensitivity)}</p>` : ''}
+    </div>`;
+  }).join('');
+}
+
+// ช่องเชื้อ/ความไวต่อยา โผล่เฉพาะตอนเลือก culture
+function syncCultureFields() {
+  const f = $('#ix-form');
+  f.querySelector('.culture-only').hidden = f.elements.category.value !== 'culture';
+}
+
+$('#ix-form').elements.category.addEventListener('change', syncCultureFields);
+
+$('#btn-new-ix').addEventListener('click', () => {
+  const f = openSubForm('#ix-form', { performed_at: today(), category: 'imaging', status: 'final' });
+  f.elements.id.value = '';
+  syncCultureFields();
+  f.elements.name.focus();
+});
+
+$('#ix-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = formData(e.target);
+  const id = body.id;
+  delete body.id;
+  try {
+    if (id) await api('PATCH', `/api/investigations/${id}`, body);
+    else await api('POST', `/api/patients/${state.openId}/investigations`, body);
+    e.target.hidden = true;
+    toast('บันทึกผลตรวจแล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+// แก้ไข / ลบ ของทั้งสองรายการ
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset?.editProblem) {
+      const pb = state.problems.find((x) => x.id === t.dataset.editProblem);
+      const f = openSubForm('#problem-form');
+      for (const k of ['id', 'title', 'status', 'detail', 'plan', 'started_at']) f.elements[k].value = pb[k] ?? '';
+      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (t.dataset?.delProblem) {
+      if (confirm('ลบปัญหานี้?')) await api('DELETE', `/api/problems/${t.dataset.delProblem}`);
+    } else if (t.dataset?.editIx) {
+      const ix = state.investigations.find((x) => x.id === t.dataset.editIx);
+      const f = openSubForm('#ix-form');
+      for (const k of ['id', 'performed_at', 'category', 'name', 'status', 'result', 'organism', 'sensitivity']) {
+        f.elements[k].value = ix[k] ?? '';
+      }
+      syncCultureFields();
+      f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else if (t.dataset?.delIx) {
+      if (confirm('ลบผลตรวจนี้?')) await api('DELETE', `/api/investigations/${t.dataset.delIx}`);
     }
   } catch (ex) { toast(ex.message); }
 });

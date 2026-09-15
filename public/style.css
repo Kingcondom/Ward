@@ -228,3 +228,44 @@ td.high, td.low { color: var(--flag-critical); font-weight: 600; }
 .imp-row small.muted { margin-left: .3rem; font-size: .7rem; }
 .imp-row em { font-style: normal; font-size: .75rem; }
 .imp-row em.high, .imp-row em.low { color: var(--flag-critical); }
+
+/* ---------- ประวัติแรกรับ ---------- */
+.subsection { border-top: 1px dashed var(--line); padding-top: .6rem; margin-bottom: .8rem; }
+.subsection summary { font-size: .85rem; color: var(--accent); font-weight: 600; margin-bottom: .6rem; }
+.subsection textarea { font-size: .9rem; }
+
+/* ---------- problem list ---------- */
+.problem-list { display: flex; flex-direction: column; gap: .6rem; margin-top: .8rem; }
+.problem {
+  border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 10px; padding: .6rem .7rem; background: var(--bg);
+}
+.problem.st-monitoring { border-left-color: var(--flag-warning); }
+.problem.st-resolved { border-left-color: var(--muted); opacity: .7; }
+.problem-head { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+.problem-head b { font-size: .95rem; }
+.problem-no {
+  width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--accent-soft);
+  color: var(--accent); font-size: .72rem; font-weight: 700; display: grid; place-items: center;
+}
+.problem-date { font-size: .72rem; margin-top: .15rem; }
+.problem-body { margin: .35rem 0 0; font-size: .87rem; white-space: pre-wrap; }
+.problem-body.plan { color: var(--muted); }
+.problem-body.plan b { color: var(--ink); }
+.badge.active { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.badge.monitoring { color: var(--flag-warning); border-color: color-mix(in srgb, var(--flag-warning) 40%, var(--line)); }
+.badge.resolved { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); }
+
+/* ---------- investigations ---------- */
+.ix-list { display: flex; flex-direction: column; gap: .6rem; margin-top: .8rem; }
+.ix { border: 1px solid var(--line); border-radius: 10px; padding: .6rem .7rem; background: var(--bg); }
+.ix.pending { border-style: dashed; border-color: color-mix(in srgb, var(--flag-warning) 50%, var(--line)); }
+.ix-head { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; font-size: .8rem; }
+.ix-head b { font-size: .93rem; }
+.ix-result { margin: .35rem 0 0; font-size: .87rem; white-space: pre-wrap; }
+.pending-note {
+  margin: 0 0 .2rem; padding: .45rem .6rem; border-radius: 8px; font-size: .83rem;
+  background: color-mix(in srgb, var(--flag-warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--flag-warning) 35%, var(--line));
+}
+.culture-only { border-left: 2px solid var(--line); padding-left: .6rem; margin-bottom: .6rem; }
