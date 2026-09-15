@@ -4,11 +4,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./db');
+const { execFileSync } = require('node:child_process');
 const { parseClinicalText, VITAL_RANGES, LAB_RANGES } = require('./parse');
 
 const PORT = Number(process.env.PORT || 3000);
 const PASSCODE = process.env.WARD_PASSCODE || 'ward1234';
 const PUBLIC_DIR = path.join(__dirname, 'public');
+
+/* เวอร์ชันของโค้ดที่กำลังรันอยู่ — ใช้ตรวจว่าเครื่องนี้ดึงโค้ดล่าสุดมาแล้วหรือยัง
+   อ่านจาก git ตอนเริ่มทำงานครั้งเดียว ถ้าอ่านไม่ได้ก็ไม่เป็นไร */
+const BUILD = (() => {
+  const git = (args) => execFileSync('git', args, { cwd: __dirname, encoding: 'utf8' }).trim();
+  try {
+    return { commit: git(['rev-parse', '--short', 'HEAD']), date: git(['log', '-1', '--format=%cs']) };
+  } catch {
+    return { commit: null, date: null };
+  }
+})();
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 ชม.
 
 /* ---------------- sessions (in-memory) ---------------- */
@@ -118,8 +130,10 @@ async function handleApi(req, res, url, session) {
     return json(res, 200, { user });
   }
 
+  if (p === '/api/version') return json(res, 200, BUILD);
+
   if (p === '/api/me') {
-    return session ? json(res, 200, { user: session.user }) : json(res, 401, { error: 'unauthenticated' });
+    return session ? json(res, 200, { user: session.user, build: BUILD }) : json(res, 401, { error: 'unauthenticated' });
   }
 
   if (p === '/api/logout' && method === 'POST') {
@@ -536,6 +550,7 @@ server.listen(PORT, () => {
     console.log('='.repeat(60) + '\n');
   }
   console.log(`Ward  →  http://localhost:${PORT}`);
+  console.log(`เวอร์ชันโค้ด: ${BUILD.commit ?? 'ไม่ทราบ'}${BUILD.date ? ` (${BUILD.date})` : ''}`);
   console.log(`ฐานข้อมูล: ${store.DB_PATH}`);
   if (!process.env.WARD_PASSCODE) console.log('⚠  ใช้รหัสผ่านเริ่มต้น "ward1234" — ตั้ง WARD_PASSCODE ก่อนใช้งานจริง');
 });

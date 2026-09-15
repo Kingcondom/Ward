@@ -274,3 +274,7 @@ td.high, td.low { color: var(--flag-critical); font-weight: 600; }
 .case-list li { margin: .3rem 0; }
 .case-list small { display: block; font-size: .74rem; }
 input[type=file] { padding: .45rem; background: var(--card); }
+
+.build { font-size: .72rem; opacity: .7; white-space: nowrap; }
+.build-login { font-size: .72rem; text-align: center; margin-top: .8rem; }
+@media (max-width: 700px) { .build { display: none; } }

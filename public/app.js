@@ -65,6 +65,18 @@ function showApp() {
   $('#who').textContent = state.user;
 }
 
+// แสดงเวอร์ชันของโค้ดที่เครื่องนี้รันอยู่ ใช้ยืนยันว่าดึงของใหม่มาแล้วจริง
+function showBuild(build) {
+  if (!build?.commit) return;
+  const text = `เวอร์ชัน ${build.commit}${build.date ? ` · ${build.date}` : ''}`;
+  $('#build').textContent = text;
+  $('#build-login').textContent = text;
+}
+
+(async () => {
+  try { showBuild(await (await fetch('/api/version')).json()); } catch { /* ไม่สำคัญพอจะรบกวนผู้ใช้ */ }
+})();
+
 $('#login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const err = $('#login-error');
@@ -1042,7 +1054,9 @@ document.addEventListener('keydown', (e) => {
   try {
     const me = await fetch('/api/me');
     if (!me.ok) return showLogin();
-    state.user = (await me.json()).user;
+    const meData = await me.json();
+    state.user = meData.user;
+    showBuild(meData.build);
     showApp();
     state.ranges = await api('GET', '/api/ranges');
     await refresh();
