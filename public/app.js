@@ -918,6 +918,29 @@ function renderImportPreview(parsed) {
 }
 
 
+/* ---------------- สำรองข้อมูลทั้งหมด ---------------- */
+$('#btn-backup').addEventListener('click', async () => {
+  const note = $('#backup-note');
+  note.textContent = 'กำลังเตรียมไฟล์…';
+  try {
+    const res = await fetch('/api/cases/export');
+    if (!res.ok) throw new Error('สำรองข้อมูลไม่สำเร็จ');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ward-backup-${today()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+    note.textContent = 'ดาวน์โหลดแล้ว — เก็บไฟล์ไว้ในที่ปลอดภัย';
+  } catch (ex) {
+    note.textContent = '';
+    toast(ex.message);
+  }
+});
+
 /* ---------------- นำเข้าเคสทั้งชุดจากไฟล์ JSON ---------------- */
 $('#case-file').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];

@@ -371,6 +371,43 @@ async function handleApi(req, res, url, session) {
     }
   }
 
+  // สำรองข้อมูลทั้งหมดเป็นไฟล์เดียว — รูปแบบเดียวกับที่ตัวนำเข้ารับ จึงกู้คืนได้ทันที
+  if (p === '/api/cases/export' && method === 'GET') {
+    const patients = store.listPatients({ includeDischarged: true });
+    const cases = patients.map((pt) => ({
+      bed: pt.bed, initials: pt.initials, age: pt.age, sex: pt.sex, allergy: pt.allergy,
+      admitted_at: pt.admitted_at, discharged_at: pt.discharged_at, status: pt.status,
+      diagnosis: pt.diagnosis, treatment: pt.treatment,
+      underlying: pt.underlying, chief_complaint: pt.chief_complaint,
+      present_illness: pt.present_illness, past_history: pt.past_history,
+      physical_exam: pt.physical_exam,
+      vitals: store.listVitals(pt.id).map(({ id, patient_id, created_at, ...v }) => v),
+      labs: store.listLabs(pt.id).map(({ id, patient_id, created_at, ...l }) => l),
+      problems: store.listProblems(pt.id).map(({ id, patient_id, created_at, updated_at, position, ...pb }) => pb),
+      investigations: store.listInvestigations(pt.id)
+        .map(({ id, patient_id, created_at, updated_at, ...ix }) => ix),
+      events: store.listEvents(pt.id)
+        .filter((e) => !e.auto)
+        .map(({ id, patient_id, created_at, auto, ...ev }) => ev),
+      notes: store.listNotes(pt.id).map(({ id, patient_id, created_at, updated_at, ...n }) => n),
+    }));
+    const bundle = {
+      note: 'ไฟล์สำรองข้อมูล Ward — นำกลับเข้าระบบได้ที่แท็บนำเข้า',
+      exported_at: store.nowISO(),
+      exported_by: user,
+      cases,
+    };
+    const data = JSON.stringify(bundle, null, 2);
+    const stamp = store.nowISO().slice(0, 10);
+    res.writeHead(200, {
+      'content-type': 'application/json; charset=utf-8',
+      'content-disposition': `attachment; filename="ward-backup-${stamp}.json"`,
+      'content-length': Buffer.byteLength(data),
+      'cache-control': 'no-store',
+    });
+    return res.end(data);
+  }
+
   // นำเข้าเคสทั้งชุดจากไฟล์ JSON (ผู้ใช้เลือกไฟล์ในหน้าเว็บ)
   if (p === '/api/cases/import' && method === 'POST') {
     const body = await readBody(req, 4 * 1024 * 1024);
@@ -400,6 +437,8 @@ async function handleApi(req, res, url, session) {
           underlying: c.underlying, chief_complaint: c.chief_complaint,
           present_illness: c.present_illness, past_history: c.past_history,
           physical_exam: c.physical_exam,
+          // ไฟล์สำรองพาสถานะ D/C กลับมาด้วย
+          ...(c.status ? { status: c.status, discharged_at: c.discharged_at ?? null } : {}),
         }, user);
         store.createEvent(patient.id, {
           occurred_at: patient.admitted_at, kind: 'admit',
@@ -486,6 +525,16 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
+  // ใน Codespaces ลิงก์ที่ใช้เปิดจริงไม่ใช่ localhost จึงพิมพ์ให้เห็นชัด ๆ
+  const cs = process.env.CODESPACE_NAME;
+  const domain = process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN;
+  if (cs && domain) {
+    const url = `https://${cs}-${PORT}.${domain}`;
+    console.log('\n' + '='.repeat(60));
+    console.log('  เปิดเว็บ Ward ที่ลิงก์นี้ (เซฟไว้ที่หน้าจอหลักได้เลย)');
+    console.log(`  ${url}`);
+    console.log('='.repeat(60) + '\n');
+  }
   console.log(`Ward  →  http://localhost:${PORT}`);
   console.log(`ฐานข้อมูล: ${store.DB_PATH}`);
   if (!process.env.WARD_PASSCODE) console.log('⚠  ใช้รหัสผ่านเริ่มต้น "ward1234" — ตั้ง WARD_PASSCODE ก่อนใช้งานจริง');
