@@ -1,0 +1,27 @@
+# Fly.io — ฟรี/ราคาถูก และมี volume เก็บข้อมูลถาวร
+# วิธีใช้:  fly launch --no-deploy  →  fly volumes create ward_data --size 1
+#          fly secrets set WARD_PASSCODE='รหัสของคุณ'  →  fly deploy
+app = "ward"
+primary_region = "sin"   # สิงคโปร์ — ใกล้ไทยที่สุด
+
+[build]
+
+[env]
+  PORT = "3000"
+  WARD_DB = "/data/ward.db"
+
+[[mounts]]
+  source = "ward_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# real-time ใช้ SSE ที่เปิดค้างไว้ จึงต้องให้ทุก request ไปเครื่องเดียวกัน
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,788 @@
+'use strict';
+
+const $ = (sel) => document.querySelector(sel);
+const today = () => new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD ตามเวลาเครื่อง
+
+const state = {
+  user: null,
+  patients: [],
+  openId: null,       // ผู้ป่วยที่เปิด drawer อยู่
+  notes: [],
+  editingNoteId: null,
+  vitals: [],
+  labs: [],
+  timeline: [],
+  ranges: { vitals: {}, labs: {} },
+  tab: 'info',
+  parsed: null,
+};
+
+/* ---------------- utils ---------------- */
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 2600);
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: body ? { 'content-type': 'application/json' } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) { showLogin(); throw new Error('กรุณาเข้าสู่ระบบอีกครั้ง'); }
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || `เกิดข้อผิดพลาด (${res.status})`);
+  return data;
+}
+
+function formData(form) {
+  const out = {};
+  for (const [k, v] of new FormData(form)) out[k] = typeof v === 'string' ? v.trim() : v;
+  return out;
+}
+
+/* ---------------- auth ---------------- */
+function showLogin() {
+  state.user = null;
+  $('#app').hidden = true;
+  $('#drawer').hidden = true;
+  $('#login').hidden = false;
+}
+
+function showApp() {
+  $('#login').hidden = true;
+  $('#app').hidden = false;
+  $('#who').textContent = state.user;
+}
+
+$('#login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = $('#login-error');
+  err.hidden = true;
+  try {
+    const { user } = await api('POST', '/api/login', formData(e.target));
+    state.user = user;
+    e.target.reset();
+    showApp();
+    state.ranges = await api('GET', '/api/ranges');
+    await refresh();
+    connectStream();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.hidden = false;
+  }
+});
+
+$('#logout').addEventListener('click', async () => {
+  await api('POST', '/api/logout').catch(() => {});
+  if (stream) stream.close();
+  showLogin();
+});
+
+/* ---------------- realtime (SSE) ---------------- */
+let stream = null;
+
+function setLive(status, text) {
+  const el = $('#live');
+  el.classList.toggle('on', status === 'on');
+  el.classList.toggle('off', status === 'off');
+  $('#live-text').textContent = text;
+}
+
+function connectStream() {
+  if (stream) stream.close();
+  stream = new EventSource('/api/stream');
+
+  stream.addEventListener('hello', (e) => {
+    setLive('on', `real-time • ${JSON.parse(e.data).viewers} เครื่อง`);
+  });
+  stream.addEventListener('viewers', (e) => {
+    setLive('on', `real-time • ${JSON.parse(e.data).viewers} เครื่อง`);
+  });
+  stream.onerror = () => setLive('off', 'ขาดการเชื่อมต่อ — กำลังลองใหม่…');
+
+  const touched = (by) => by && by !== state.user;
+
+  stream.addEventListener('patient:created', (e) => {
+    const { patient, by } = JSON.parse(e.data);
+    upsertPatient(patient);
+    render();
+    if (touched(by)) toast(`${by} รับผู้ป่วยใหม่ เตียง ${patient.bed}`);
+  });
+
+  stream.addEventListener('patient:updated', (e) => {
+    const { patient, by } = JSON.parse(e.data);
+    upsertPatient(patient);
+    render();
+    if (state.openId === patient.id) fillPatientForm(patient);
+    if (touched(by)) toast(`${by} แก้ข้อมูลเตียง ${patient.bed}`);
+  });
+
+  stream.addEventListener('patient:deleted', (e) => {
+    const { id, by } = JSON.parse(e.data);
+    state.patients = state.patients.filter((p) => p.id !== id);
+    if (state.openId === id) closeDrawer();
+    render();
+    if (touched(by)) toast(`${by} ลบผู้ป่วย 1 ราย`);
+  });
+
+  for (const ev of ['vitals:changed', 'labs:changed', 'timeline:changed']) {
+    stream.addEventListener(ev, async (e) => {
+      const { patient_id: pid, by } = JSON.parse(e.data);
+      if (state.openId === pid) await loadClinical(pid);
+      if (by && by !== state.user && state.openId === pid) toast(`${by} อัปเดตข้อมูลผู้ป่วยรายนี้`);
+    });
+  }
+
+  for (const ev of ['note:created', 'note:updated', 'note:deleted']) {
+    stream.addEventListener(ev, async (e) => {
+      const data = JSON.parse(e.data);
+      const pid = data.note?.patient_id || data.patient_id;
+      await refresh({ keepOpen: true });
+      if (touched(data.by)) {
+        const p = state.patients.find((x) => x.id === pid);
+        toast(`${data.by} ${ev === 'note:deleted' ? 'ลบ' : 'บันทึก'} SOAP${p ? ` เตียง ${p.bed}` : ''}`);
+      }
+    });
+  }
+}
+
+function upsertPatient(patient) {
+  const i = state.patients.findIndex((p) => p.id === patient.id);
+  const prev = i >= 0 ? state.patients[i] : {};
+  const merged = { soap_count: 0, last_soap_date: null, ...prev, ...patient };
+  if (i >= 0) state.patients[i] = merged; else state.patients.push(merged);
+}
+
+/* ---------------- data ---------------- */
+async function refresh({ keepOpen = false } = {}) {
+  const all = $('#show-discharged').checked ? '?all=1' : '';
+  state.patients = await api('GET', `/api/patients${all}`);
+  render();
+  if (keepOpen && state.openId) {
+    const p = state.patients.find((x) => x.id === state.openId);
+    if (p) await openPatient(state.openId, { silent: true });
+  }
+}
+
+/* ---------------- dashboard ---------------- */
+function visiblePatients() {
+  const q = $('#search').value.trim().toLowerCase();
+  const onlyPending = $('#only-pending').checked;
+  const d = today();
+  return state.patients.filter((p) => {
+    if (onlyPending && (p.last_soap_date === d || p.status !== 'active')) return false;
+    if (!q) return true;
+    return [p.bed, p.initials, p.diagnosis, p.treatment].some((v) => String(v ?? '').toLowerCase().includes(q));
+  });
+}
+
+function bedSort(a, b) {
+  if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+  const na = parseInt(a.bed, 10); const nb = parseInt(b.bed, 10);
+  if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb;
+  return String(a.bed).localeCompare(String(b.bed), 'th');
+}
+
+function render() {
+  const list = visiblePatients().slice().sort(bedSort);
+  const d = today();
+
+  const active = state.patients.filter((p) => p.status === 'active');
+  $('#stat-active').textContent = active.length;
+  $('#stat-today').textContent = active.filter((p) => p.last_soap_date === d).length;
+  $('#stat-pending').textContent = active.filter((p) => p.last_soap_date !== d).length;
+
+  $('#board').innerHTML = list.map((p) => {
+    const dc = p.status !== 'active';
+    const done = p.last_soap_date === d;
+    return `<article class="bed ${dc ? 'dc' : done ? '' : 'pending'}" data-id="${p.id}" tabindex="0">
+      <div class="bed-top">
+        <span class="bed-chip">เตียง ${esc(p.bed)}</span>
+        <span class="bed-name">${esc(p.initials)}</span>
+        <span class="bed-meta">${esc([p.age, p.sex].filter(Boolean).join(' · '))}</span>
+      </div>
+      <div class="field"><span>Diagnosis</span>${esc(p.diagnosis) || '<i class="muted">—</i>'}</div>
+      <div class="field"><span>การรักษา</span>${esc(p.treatment) || '<i class="muted">—</i>'}</div>
+      <div class="badges">
+        ${dc ? `<span class="badge">D/C ${esc(p.discharged_at ?? '')}</span>`
+              : done ? '<span class="badge ok">✓ SOAP วันนี้</span>' : '<span class="badge warn">ยังไม่มี SOAP วันนี้</span>'}
+        ${p.allergy ? `<span class="badge allergy">แพ้ ${esc(p.allergy)}</span>` : ''}
+        <span class="badge">SOAP ${p.soap_count} ครั้ง</span>
+      </div>
+    </article>`;
+  }).join('');
+
+  $('#empty').hidden = list.length > 0;
+  if (list.length === 0 && state.patients.length > 0) $('#empty').textContent = 'ไม่พบผู้ป่วยตามเงื่อนไขที่กรอง';
+  else $('#empty').textContent = 'ยังไม่มีผู้ป่วยในหอ — กด “รับผู้ป่วยใหม่” เพื่อเริ่ม';
+}
+
+$('#board').addEventListener('click', (e) => {
+  const card = e.target.closest('.bed');
+  if (card) openPatient(card.dataset.id);
+});
+$('#board').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.classList.contains('bed')) openPatient(e.target.dataset.id);
+});
+$('#search').addEventListener('input', render);
+$('#only-pending').addEventListener('change', render);
+$('#show-discharged').addEventListener('change', () => refresh({ keepOpen: true }));
+
+/* ---------------- patient drawer ---------------- */
+function fillPatientForm(p) {
+  const f = $('#patient-form');
+  for (const k of ['bed', 'initials', 'age', 'sex', 'diagnosis', 'treatment', 'allergy', 'admitted_at']) {
+    if (f.elements[k]) f.elements[k].value = p[k] ?? '';
+  }
+  $('#d-bed').textContent = `เตียง ${p.bed}`;
+  $('#d-title').textContent = p.initials;
+  $('#d-sub').textContent = [p.age, p.sex, p.admitted_at && `admit ${p.admitted_at}`,
+    p.status !== 'active' && `D/C ${p.discharged_at ?? ''}`].filter(Boolean).join(' · ');
+  $('#btn-discharge').hidden = p.status !== 'active';
+  $('#btn-readmit').hidden = p.status === 'active';
+}
+
+async function openPatient(id, { silent = false } = {}) {
+  const data = await api('GET', `/api/patients/${id}`);
+  state.openId = id;
+  state.notes = data.notes;
+  fillPatientForm(data);
+  renderNotes();
+  $('#drawer').hidden = false;
+  if (!silent) {
+    $('#note-form').hidden = true;
+    showTab('info');
+  }
+  await loadClinical(id);
+}
+
+async function loadClinical(id) {
+  const [vitals, labs, timeline] = await Promise.all([
+    api('GET', `/api/patients/${id}/vitals`),
+    api('GET', `/api/patients/${id}/labs`),
+    api('GET', `/api/patients/${id}/timeline`),
+  ]);
+  if (state.openId !== id) return;      // ผู้ใช้เปลี่ยนผู้ป่วยระหว่างโหลด
+  state.vitals = vitals;
+  state.labs = labs;
+  state.timeline = timeline;
+  renderVitals();
+  renderLabs();
+  renderTimeline();
+}
+
+/* ---------------- tabs ---------------- */
+function showTab(name) {
+  state.tab = name;
+  for (const btn of document.querySelectorAll('#tabs .tab')) btn.classList.toggle('active', btn.dataset.tab === name);
+  for (const panel of document.querySelectorAll('.panel')) panel.hidden = panel.dataset.panel !== name;
+}
+
+$('#tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab');
+  if (btn) showTab(btn.dataset.tab);
+});
+
+function closeDrawer() {
+  $('#drawer').hidden = true;
+  state.openId = null;
+  state.editingNoteId = null;
+  state.vitals = [];
+  state.labs = [];
+  state.timeline = [];
+  $('#note-form').hidden = true;
+}
+
+function renderNotes() {
+  const byDate = new Map();
+  for (const n of state.notes) {
+    if (!byDate.has(n.note_date)) byDate.set(n.note_date, []);
+    byDate.get(n.note_date).push(n);
+  }
+  if (!state.notes.length) {
+    $('#note-list').innerHTML = '<p class="muted">ยังไม่มีบันทึก SOAP</p>';
+    return;
+  }
+  const part = (label, text) => (text ? `<div><b>${label}</b><p>${esc(text)}</p></div>` : '');
+  $('#note-list').innerHTML = [...byDate.entries()].map(([date, notes]) => notes.map((n) => `
+    <div class="note" data-id="${n.id}">
+      <div class="note-head">
+        <b>${esc(date)}</b>
+        ${n.round ? `<span>· ${esc(n.round)}</span>` : ''}
+        ${n.author ? `<span>· ${esc(n.author)}</span>` : ''}
+        <span class="spacer"></span>
+        <button class="ghost mini" data-edit="${n.id}">แก้ไข</button>
+        <button class="danger mini" data-del="${n.id}">ลบ</button>
+      </div>
+      <div class="soap">
+        ${part('S', n.subjective)}${part('O', n.objective)}${part('A', n.assessment)}${part('P', n.plan)}
+      </div>
+    </div>`).join('')).join('');
+}
+
+$('#patient-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('PATCH', `/api/patients/${state.openId}`, formData(e.target));
+    toast('บันทึกข้อมูลผู้ป่วยแล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#btn-discharge').addEventListener('click', async () => {
+  if (!confirm('ยืนยัน D/C ผู้ป่วยรายนี้?')) return;
+  await api('POST', `/api/patients/${state.openId}/discharge`);
+  toast('D/C แล้ว');
+  await refresh({ keepOpen: true });
+});
+
+$('#btn-readmit').addEventListener('click', async () => {
+  await api('POST', `/api/patients/${state.openId}/readmit`);
+  toast('กลับเข้ารักษาแล้ว');
+  await refresh({ keepOpen: true });
+});
+
+$('#btn-delete').addEventListener('click', async () => {
+  if (!confirm('ลบผู้ป่วยรายนี้และบันทึก SOAP ทั้งหมด? การลบไม่สามารถย้อนกลับได้')) return;
+  const id = state.openId;
+  closeDrawer();
+  await api('DELETE', `/api/patients/${id}`);
+  toast('ลบแล้ว');
+});
+
+/* ---------------- SOAP form ---------------- */
+$('#btn-new-note').addEventListener('click', () => {
+  const f = $('#note-form');
+  f.reset();
+  state.editingNoteId = null;
+  f.elements.note_date.value = today();
+  f.hidden = false;
+  f.elements.subjective.focus();
+});
+
+$('#btn-cancel-note').addEventListener('click', () => {
+  $('#note-form').hidden = true;
+  state.editingNoteId = null;
+});
+
+$('#note-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = formData(e.target);
+  try {
+    if (state.editingNoteId) await api('PATCH', `/api/notes/${state.editingNoteId}`, body);
+    else await api('POST', `/api/patients/${state.openId}/notes`, body);
+    state.editingNoteId = null;
+    e.target.hidden = true;
+    toast('บันทึก SOAP แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#note-list').addEventListener('click', async (e) => {
+  const editId = e.target.dataset.edit;
+  const delId = e.target.dataset.del;
+  if (editId) {
+    const n = state.notes.find((x) => x.id === editId);
+    const f = $('#note-form');
+    for (const k of ['note_date', 'round', 'subjective', 'objective', 'assessment', 'plan']) f.elements[k].value = n[k] ?? '';
+    state.editingNoteId = editId;
+    f.hidden = false;
+    f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  if (delId) {
+    if (!confirm('ลบบันทึก SOAP นี้?')) return;
+    await api('DELETE', `/api/notes/${delId}`);
+    toast('ลบบันทึกแล้ว');
+  }
+});
+
+
+/* ================= V/S & Lab : กราฟแนวโน้ม =================
+   ใช้กราฟเล็กแยกหนึ่งค่าต่อหนึ่งกราฟ (small multiples) ไม่ใช้กราฟสองแกน
+   เพราะ BT 37 กับ BP 120 คนละสเกล ถ้าซ้อนแกนเดียวกันจะอ่านผิด          */
+
+const VS_SERIES = [
+  { key: 'bt', label: 'BT', unit: '°C' },
+  { key: 'sbp', label: 'BP ตัวบน (SBP)', unit: 'mmHg' },
+  { key: 'dbp', label: 'BP ตัวล่าง (DBP)', unit: 'mmHg' },
+  { key: 'pr', label: 'PR', unit: '/min' },
+  { key: 'rr', label: 'RR', unit: '/min' },
+  { key: 'o2sat', label: 'O2sat', unit: '%' },
+];
+
+function flagOf(range, value) {
+  if (!range || value === null || value === undefined || Number.isNaN(value)) return null;
+  if (range.low !== null && range.low !== undefined && value < range.low) return 'low';
+  if (range.high !== null && range.high !== undefined && value > range.high) return 'high';
+  return 'normal';
+}
+
+const FLAG_TEXT = { low: 'ต่ำ', high: 'สูง', normal: '' };
+const FLAG_MARK = { low: '▼', high: '▲', normal: '' };
+
+/** กราฟเส้นหนึ่งค่า: จุด >=8px, เส้น 2px, แถบช่วงอ้างอิงเป็นสีเทาถอยหลัง, hover มีรายละเอียด */
+function lineChart({ points, range, unit, label }) {
+  const W = 260; const H = 84;
+  const PAD = { t: 10, r: 10, b: 16, l: 34 };
+  const plotW = W - PAD.l - PAD.r;
+  const plotH = H - PAD.t - PAD.b;
+
+  const values = points.map((p) => p.value);
+  const lo = Math.min(...values, range?.low ?? Infinity);
+  const hi = Math.max(...values, range?.high ?? -Infinity);
+  const pad = (hi - lo) * 0.15 || Math.max(Math.abs(hi) * 0.05, 1);
+  const min = lo - pad;
+  const max = hi + pad;
+  const x = (i) => PAD.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
+  const y = (v) => PAD.t + plotH - ((v - min) / (max - min || 1)) * plotH;
+
+  let band = '';
+  if (range && (range.low != null || range.high != null)) {
+    const top = y(range.high ?? max);
+    const bottom = y(range.low ?? min);
+    band = `<rect class="band" x="${PAD.l}" y="${Math.min(top, bottom)}" width="${plotW}"
+      height="${Math.max(Math.abs(bottom - top), 1)}"></rect>`;
+  }
+
+  const path = points.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join('');
+  const dots = points.map((p, i) => {
+    const f = flagOf(range, p.value);
+    return `<circle class="dot ${f || ''}" cx="${x(i).toFixed(1)}" cy="${y(p.value).toFixed(1)}" r="4"
+      tabindex="0"><title>${esc(p.at)} — ${p.value}${unit ? ' ' + unit : ''}${
+      f && f !== 'normal' ? ` (${FLAG_TEXT[f]}กว่าค่าอ้างอิง)` : ''}</title></circle>`;
+  }).join('');
+
+  const last = points[points.length - 1];
+  const lastFlag = flagOf(range, last.value);
+  return `<figure class="chart">
+    <figcaption>
+      <span class="chart-label">${esc(label)}</span>
+      <span class="chart-last ${lastFlag || ''}">${last.value}<small>${unit ? ' ' + unit : ''}</small>${
+        lastFlag && lastFlag !== 'normal' ? ` <b>${FLAG_MARK[lastFlag]} ${FLAG_TEXT[lastFlag]}</b>` : ''}</span>
+    </figcaption>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="แนวโน้ม ${esc(label)}" preserveAspectRatio="none">
+      ${band}
+      <line class="axis" x1="${PAD.l}" y1="${PAD.t + plotH}" x2="${W - PAD.r}" y2="${PAD.t + plotH}"></line>
+      <text class="tick" x="${PAD.l - 4}" y="${PAD.t + 4}">${Number(max.toFixed(1))}</text>
+      <text class="tick" x="${PAD.l - 4}" y="${PAD.t + plotH}">${Number(min.toFixed(1))}</text>
+      ${points.length > 1 ? `<path class="line" d="${path}"></path>` : ''}
+      ${dots}
+    </svg>
+    <figcaption class="chart-range muted">${
+      range ? `ค่าอ้างอิง ${range.low ?? '–'}–${range.high ?? '–'}${unit ? ' ' + unit : ''}` : ''
+    } · ${points.length} ครั้ง</figcaption>
+  </figure>`;
+}
+
+function renderVitals() {
+  const rows = state.vitals;
+  const box = $('#vs-charts');
+  if (!rows.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มีข้อมูล V/S</p>';
+    $('#vs-table').innerHTML = '';
+    return;
+  }
+  box.innerHTML = VS_SERIES.map(({ key, label, unit }) => {
+    const points = rows.filter((r) => r[key] !== null && r[key] !== undefined)
+      .map((r) => ({ at: String(r.measured_at).replace('T', ' '), value: r[key] }));
+    if (!points.length) return '';
+    return lineChart({ points, range: state.ranges.vitals?.[key], unit, label });
+  }).join('') || '<p class="muted">ยังไม่มีค่าที่บันทึกไว้</p>';
+
+  $('#vs-table').innerHTML = `<div class="table-scroll"><table>
+    <thead><tr><th>วันเวลา</th>${VS_SERIES.map((s) => `<th>${s.label}</th>`).join('')}<th></th></tr></thead>
+    <tbody>${rows.slice().reverse().map((r) => `<tr>
+      <td>${esc(String(r.measured_at).replace('T', ' '))}</td>
+      ${VS_SERIES.map((s) => {
+        const f = flagOf(state.ranges.vitals?.[s.key], r[s.key]);
+        return `<td class="${f || ''}">${r[s.key] ?? '–'}${f && f !== 'normal' ? ` ${FLAG_MARK[f]}` : ''}</td>`;
+      }).join('')}
+      <td><button class="danger mini" data-del-vitals="${r.id}">ลบ</button></td>
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+function renderLabs() {
+  const rows = state.labs;
+  const box = $('#lab-charts');
+  if (!rows.length) {
+    box.innerHTML = '<p class="muted">ยังไม่มีผล Lab</p>';
+    $('#lab-table').innerHTML = '';
+    return;
+  }
+  const byName = new Map();
+  for (const r of rows) {
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r);
+  }
+  box.innerHTML = [...byName.entries()].map(([name, list]) => {
+    const points = list.filter((r) => r.value !== null).map((r) => ({ at: r.collected_at, value: r.value }));
+    if (!points.length) return '';
+    return lineChart({ points, range: state.ranges.labs?.[name], unit: list[0].unit, label: name });
+  }).join('');
+
+  const dates = [...new Set(rows.map((r) => String(r.collected_at).slice(0, 10)))].sort().reverse();
+  const names = [...byName.keys()];
+  $('#lab-table').innerHTML = `<div class="table-scroll"><table>
+    <thead><tr><th>Lab</th>${dates.map((d) => `<th>${esc(d)}</th>`).join('')}</tr></thead>
+    <tbody>${names.map((n) => `<tr><td><b>${esc(n)}</b></td>${dates.map((d) => {
+      const hit = rows.find((r) => r.name === n && String(r.collected_at).slice(0, 10) === d);
+      if (!hit) return '<td>–</td>';
+      const f = flagOf(state.ranges.labs?.[n], hit.value);
+      return `<td class="${f || ''}">${hit.value}${f && f !== 'normal' ? ` ${FLAG_MARK[f]}` : ''}</td>`;
+    }).join('')}</tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ================= Timeline ================= */
+
+const KIND_LABEL = {
+  admit: { icon: '🏥', text: 'Admit' },
+  diagnosis: { icon: '🩺', text: 'Diagnosis' },
+  procedure: { icon: '🔧', text: 'หัตถการ' },
+  consult: { icon: '📞', text: 'Consult' },
+  complication: { icon: '⚠️', text: 'ภาวะแทรกซ้อน' },
+  transfer: { icon: '🚚', text: 'ย้ายหอผู้ป่วย' },
+  discharge: { icon: '🏠', text: 'D/C' },
+  import: { icon: '📥', text: 'นำเข้าข้อมูล' },
+  soap: { icon: '📝', text: 'SOAP' },
+  note: { icon: '•', text: 'บันทึก' },
+};
+
+function renderTimeline() {
+  const items = state.timeline;
+  if (!items.length) {
+    $('#timeline').innerHTML = '<p class="muted">ยังไม่มีเหตุการณ์</p>';
+    return;
+  }
+  $('#timeline').innerHTML = items.map((it) => {
+    const k = KIND_LABEL[it.kind] ?? KIND_LABEL.note;
+    return `<div class="tl-item kind-${esc(it.kind)}">
+      <div class="tl-marker" aria-hidden="true">${k.icon}</div>
+      <div class="tl-body">
+        <div class="tl-head">
+          <b>${esc(it.title)}</b>
+          <span class="badge">${k.text}</span>
+          <span class="spacer"></span>
+          <span class="muted">${esc(it.at)}${it.author ? ` · ${esc(it.author)}` : ''}</span>
+          ${it.type === 'event' && !it.auto ? `<button class="danger mini" data-del-event="${it.id}">ลบ</button>` : ''}
+        </div>
+        ${it.detail ? `<p class="tl-detail">${esc(it.detail)}</p>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* ---------------- add patient ---------------- */
+$('#btn-add').addEventListener('click', () => {
+  const f = $('#add-form');
+  f.reset();
+  f.elements.admitted_at.value = today();
+  $('#add-error').hidden = true;
+  $('#modal-add').hidden = false;
+  f.elements.bed.focus();
+});
+
+$('#add-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const p = await api('POST', '/api/patients', formData(e.target));
+    $('#modal-add').hidden = true;
+    toast(`รับผู้ป่วยเตียง ${p.bed} แล้ว`);
+    openPatient(p.id);
+  } catch (ex) {
+    $('#add-error').textContent = ex.message;
+    $('#add-error').hidden = false;
+  }
+});
+
+
+/* ---------------- V/S, Lab, เหตุการณ์ ---------------- */
+function nowLocalDateTime() {
+  const d = new Date();
+  return `${today()}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function openSubForm(formSel, presets = {}) {
+  const f = $(formSel);
+  f.reset();
+  for (const [k, v] of Object.entries(presets)) if (f.elements[k]) f.elements[k].value = v;
+  f.hidden = false;
+  return f;
+}
+
+$('#btn-new-vitals').addEventListener('click', () => openSubForm('#vitals-form', { measured_at: nowLocalDateTime() }));
+$('#btn-new-lab').addEventListener('click', () => openSubForm('#lab-form', { collected_at: today() }));
+$('#btn-new-event').addEventListener('click', () => openSubForm('#event-form', { occurred_at: today() }));
+
+document.addEventListener('click', (e) => {
+  const cancel = e.target.dataset?.cancel;
+  if (cancel) $(`#${cancel}`).hidden = true;
+});
+
+$('#vitals-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const body = formData(e.target);
+  if (!VS_SERIES.some(({ key }) => body[key] !== '')) return toast('กรอกอย่างน้อย 1 ค่า');
+  try {
+    await api('POST', `/api/patients/${state.openId}/vitals`, body);
+    e.target.hidden = true;
+    toast('บันทึก V/S แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#lab-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('POST', `/api/patients/${state.openId}/labs`, formData(e.target));
+    e.target.hidden = true;
+    toast('บันทึก Lab แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+$('#event-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('POST', `/api/patients/${state.openId}/events`, formData(e.target));
+    e.target.hidden = true;
+    toast('เพิ่มเหตุการณ์แล้ว');
+  } catch (ex) { toast(ex.message); }
+});
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  try {
+    if (t.dataset?.delVitals) {
+      if (confirm('ลบค่า V/S ชุดนี้?')) await api('DELETE', `/api/vitals/${t.dataset.delVitals}`);
+    } else if (t.dataset?.delEvent) {
+      if (confirm('ลบเหตุการณ์นี้?')) await api('DELETE', `/api/events/${t.dataset.delEvent}`);
+    }
+  } catch (ex) { toast(ex.message); }
+});
+
+/* ---------------- นำเข้าจากข้อความโรงพยาบาล ---------------- */
+$('#btn-clear-import').addEventListener('click', () => {
+  $('#import-text').value = '';
+  $('#import-preview').innerHTML = '';
+  state.parsed = null;
+});
+
+$('#btn-parse').addEventListener('click', async () => {
+  const text = $('#import-text').value.trim();
+  if (!text) return toast('วางข้อความก่อน');
+  const parsed = await api('POST', '/api/parse', { text });
+  state.parsed = parsed;
+  renderImportPreview(parsed);
+});
+
+function renderImportPreview(parsed) {
+  const box = $('#import-preview');
+  if (!parsed.found) {
+    box.innerHTML = `<p class="error">ไม่พบตัวเลข V/S หรือ Lab ที่อ่านได้ในข้อความนี้
+      — ลองวางเฉพาะส่วนที่เป็นค่าตรวจ หรือกรอกเองในแท็บ V/S &amp; Lab</p>`;
+    return;
+  }
+  const v = parsed.vitals ?? {};
+  const vsRows = VS_SERIES.filter(({ key }) => v[key] !== undefined).map(({ key, label, unit }) => {
+    const f = flagOf(state.ranges.vitals?.[key], v[key]);
+    return `<label class="check imp-row"><input type="checkbox" data-vs="${key}" checked>
+      <span>${label} <b>${v[key]}</b> <small>${unit}</small>${
+        f && f !== 'normal' ? ` <em class="${f}">${FLAG_MARK[f]} ${FLAG_TEXT[f]}</em>` : ''}</span></label>`;
+  }).join('');
+
+  const labRows = parsed.labs.map((l, i) => {
+    const f = flagOf(state.ranges.labs?.[l.name], l.value);
+    return `<label class="check imp-row"><input type="checkbox" data-lab="${i}" checked>
+      <span>${esc(l.name)} <b>${l.value}</b> <small>${esc(l.unit ?? '')}</small>${
+        f && f !== 'normal' ? ` <em class="${f}">${FLAG_MARK[f]} ${FLAG_TEXT[f]}</em>` : ''}
+      <small class="muted">จาก “${esc(l.raw)}”</small></span></label>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="import-box">
+      <div class="row">
+        <label>วันที่ของค่าเหล่านี้<input type="date" id="import-date" value="${parsed.date || today()}"></label>
+        <label>เวลา (ถ้ามี)<input type="time" id="import-time" value="${parsed.time || ''}"></label>
+      </div>
+      ${vsRows ? `<h4>Vital signs</h4>${vsRows}` : ''}
+      ${labRows ? `<h4>Lab (${parsed.labs.length} ค่า)</h4>${labRows}` : ''}
+      <div class="row">
+        <button class="primary" id="btn-import-save">บันทึกรายการที่เลือก</button>
+        <span class="muted">ตรวจให้ตรงกับต้นฉบับก่อนกดบันทึก</span>
+      </div>
+    </div>`;
+
+  $('#btn-import-save').addEventListener('click', async () => {
+    const date = $('#import-date').value || today();
+    const time = $('#import-time').value;
+    const vitals = {};
+    for (const cb of document.querySelectorAll('[data-vs]:checked')) vitals[cb.dataset.vs] = v[cb.dataset.vs];
+    const labs = [...document.querySelectorAll('[data-lab]:checked')].map((cb) => parsed.labs[Number(cb.dataset.lab)]);
+    if (!Object.keys(vitals).length && !labs.length) return toast('ยังไม่ได้เลือกรายการ');
+    const result = await api('POST', `/api/patients/${state.openId}/import`, {
+      vitals: Object.keys(vitals).length ? vitals : null,
+      labs,
+      measured_at: `${date}T${time || '08:00'}`,
+      collected_at: date,
+    });
+    toast(`บันทึกแล้ว — V/S ${result.vitals} ชุด, Lab ${result.labs} ค่า`);
+    $('#import-text').value = '';
+    $('#import-preview').innerHTML = '';
+    state.parsed = null;
+    await loadClinical(state.openId);   // ไม่รอ event จาก SSE เพื่อให้เห็นผลทันที
+    showTab('trend');
+  });
+}
+
+/* ---------------- rounds ---------------- */
+$('#btn-rounds').addEventListener('click', () => {
+  $('#rounds-date').value = today();
+  $('#modal-rounds').hidden = false;
+  loadRounds();
+});
+$('#rounds-date').addEventListener('change', loadRounds);
+
+async function loadRounds() {
+  const date = $('#rounds-date').value || today();
+  const { notes } = await api('GET', `/api/rounds?date=${encodeURIComponent(date)}`);
+  const part = (l, t) => (t ? `<div><b>${l}</b><p>${esc(t)}</p></div>` : '');
+  $('#rounds-body').innerHTML = notes.length
+    ? notes.map((n) => `<div class="round-row">
+        <div class="note-head"><span class="bed-chip">เตียง ${esc(n.bed)}</span> <b>${esc(n.initials)}</b>
+        ${n.round ? `<span>· ${esc(n.round)}</span>` : ''}${n.author ? `<span>· ${esc(n.author)}</span>` : ''}</div>
+        <div class="soap">${part('S', n.subjective)}${part('O', n.objective)}${part('A', n.assessment)}${part('P', n.plan)}</div>
+      </div>`).join('')
+    : '<p class="muted">ยังไม่มีบันทึก SOAP ของวันนี้</p>';
+}
+
+/* ---------------- misc ---------------- */
+document.addEventListener('click', (e) => {
+  if (e.target.matches('[data-close]')) {
+    const host = e.target.closest('.drawer');
+    if (host?.id === 'drawer') closeDrawer(); else host.hidden = true;
+  }
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (!$('#modal-rounds').hidden) $('#modal-rounds').hidden = true;
+  else if (!$('#modal-add').hidden) $('#modal-add').hidden = true;
+  else if (!$('#drawer').hidden) closeDrawer();
+});
+
+/* ---------------- boot ---------------- */
+(async function boot() {
+  try {
+    const me = await fetch('/api/me');
+    if (!me.ok) return showLogin();
+    state.user = (await me.json()).user;
+    showApp();
+    state.ranges = await api('GET', '/api/ranges');
+    await refresh();
+    connectStream();
+  } catch { showLogin(); }
+})();

@@ -1,0 +1,15 @@
+{
+  "name": "ward",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ward - ระบบเก็บข้อมูลคนไข้ในหอผู้ป่วย พร้อม dashboard เตียง และบันทึก SOAP รายวัน (real-time)",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "seed": "node seed.js",
+    "seed:reset": "node seed.js --reset"
+  }
+}
