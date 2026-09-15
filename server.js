@@ -371,6 +371,60 @@ async function handleApi(req, res, url, session) {
     }
   }
 
+  // นำเข้าเคสทั้งชุดจากไฟล์ JSON (ผู้ใช้เลือกไฟล์ในหน้าเว็บ)
+  if (p === '/api/cases/import' && method === 'POST') {
+    const body = await readBody(req, 4 * 1024 * 1024);
+    const cases = Array.isArray(body.cases) ? body.cases : null;
+    if (!cases || !cases.length) return json(res, 400, { error: 'ไฟล์ไม่มีรายการเคส (ต้องมีคีย์ "cases")' });
+
+    const result = { added: [], skipped: [], failed: [] };
+    for (const c of cases) {
+      const bed = String(c.bed ?? '').trim();
+      if (!bed || !String(c.initials ?? '').trim()) {
+        result.failed.push({ bed: bed || '(ไม่ระบุ)', reason: 'ต้องมีเตียงและชื่อย่อ' });
+        continue;
+      }
+      const existing = store.listPatients({ includeDischarged: true }).filter((x) => x.bed === bed);
+      if (existing.length && !body.replace) {
+        result.skipped.push(bed);
+        continue;
+      }
+      try {
+        for (const old of existing) store.deletePatient(old.id);
+        const patient = store.createPatient({
+          bed, initials: c.initials, age: c.age, sex: c.sex,
+          diagnosis: c.diagnosis, treatment: c.treatment, allergy: c.allergy,
+          admitted_at: c.admitted_at,
+        }, user);
+        store.updatePatient(patient.id, {
+          underlying: c.underlying, chief_complaint: c.chief_complaint,
+          present_illness: c.present_illness, past_history: c.past_history,
+          physical_exam: c.physical_exam,
+        }, user);
+        store.createEvent(patient.id, {
+          occurred_at: patient.admitted_at, kind: 'admit',
+          title: 'Admit เข้าหอผู้ป่วย', detail: c.chief_complaint ?? null,
+        }, user, 1);
+
+        for (const v of c.vitals ?? []) store.createVitals(patient.id, v, user, 'import');
+        for (const l of c.labs ?? []) store.createLab(patient.id, l, user, 'import');
+        for (const pb of c.problems ?? []) store.createProblem(patient.id, pb, user);
+        for (const ix of c.investigations ?? []) store.createInvestigation(patient.id, ix, user);
+        for (const ev of c.events ?? []) store.createEvent(patient.id, ev, user, 0);
+        for (const n of c.notes ?? []) store.createNote(patient.id, n, user);
+
+        result.added.push(bed);
+      } catch (err) {
+        result.failed.push({ bed, reason: err.message });
+      }
+    }
+    if (result.added.length) {
+      broadcast('cases:imported', { beds: result.added, by: user });
+      broadcast('patient:refresh', { by: user });
+    }
+    return json(res, 201, result);
+  }
+
   // ค่าอ้างอิงสำหรับไฮไลต์ค่าผิดปกติ
   if (p === '/api/ranges' && method === 'GET') {
     return json(res, 200, { vitals: VITAL_RANGES, labs: LAB_RANGES });
