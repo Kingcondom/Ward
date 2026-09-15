@@ -190,6 +190,16 @@ function visiblePatients() {
   });
 }
 
+// เวชระเบียนมักบันทึกว่า "ไม่แพ้" ด้วยคำหลายแบบ ต้องไม่เอาไปขึ้นป้ายแดงว่าแพ้ยานั้น
+const NO_ALLERGY = /^(nka|nkda|none|negative|neg|deny|denied|ปฏิเสธ(การแพ้ยา)?|ไม่มี|ไม่แพ้|-|–|—)$/i;
+
+function allergyBadge(value) {
+  const v = String(value ?? '').trim();
+  if (!v) return '';
+  if (NO_ALLERGY.test(v)) return '<span class="badge ok">ไม่มีประวัติแพ้ยา</span>';
+  return `<span class="badge allergy">⚠ แพ้ ${esc(v)}</span>`;
+}
+
 function bedSort(a, b) {
   if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
   const na = parseInt(a.bed, 10); const nb = parseInt(b.bed, 10);
@@ -220,7 +230,7 @@ function render() {
       <div class="badges">
         ${dc ? `<span class="badge">D/C ${esc(p.discharged_at ?? '')}</span>`
               : done ? '<span class="badge ok">✓ SOAP วันนี้</span>' : '<span class="badge warn">ยังไม่มี SOAP วันนี้</span>'}
-        ${p.allergy ? `<span class="badge allergy">แพ้ ${esc(p.allergy)}</span>` : ''}
+        ${allergyBadge(p.allergy)}
         ${p.active_problems ? `<span class="badge">${p.active_problems} ปัญหา</span>` : ''}
         ${p.pending_ix ? `<span class="badge warn">⏳ รอผล ${p.pending_ix}</span>` : ''}
         <span class="badge">SOAP ${p.soap_count} ครั้ง</span>
