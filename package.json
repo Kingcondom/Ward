@@ -10,6 +10,7 @@
   "scripts": {
     "start": "node server.js",
     "seed": "node seed.js",
-    "seed:reset": "node seed.js --reset"
+    "seed:reset": "node seed.js --reset",
+    "clear": "node seed.js --clear"
   }
 }

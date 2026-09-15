@@ -3,6 +3,7 @@
  * ใส่ข้อมูลตัวอย่างสำหรับทดลองใช้งาน
  *   node seed.js          เพิ่มข้อมูลตัวอย่าง
  *   node seed.js --reset  ล้างข้อมูลเดิมทั้งหมดก่อน แล้วค่อยใส่ใหม่
+ *   node seed.js --clear  ล้างข้อมูลทั้งหมด ไม่ใส่ข้อมูลตัวอย่าง (ใช้ก่อนนำเข้าเคสจริง)
  *
  * ผู้ป่วยทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง
  */
@@ -312,8 +313,14 @@ function seed() {
 }
 
 if (require.main === module) {
+  // --clear ใช้ตอนจะเริ่มหอผู้ป่วยจากศูนย์ เช่น ล้างเคสตัวอย่างก่อนนำเข้าเคสจริง
+  if (process.argv.includes('--clear')) {
+    reset();
+    console.log('ฐานข้อมูลว่างแล้ว พร้อมนำเข้าเคสจริงจากหน้าเว็บ (ปุ่ม “สำรอง / นำเข้า” บนหน้าแรก)');
+    return;
+  }
   if (process.argv.includes('--reset')) reset();
   const counts = seed();
   console.log(`ใส่ข้อมูลตัวอย่างแล้ว: ผู้ป่วย ${counts.patients} ราย, SOAP ${counts.soap}, V/S ${counts.vitals} ชุด, Lab ${counts.labs} ค่า, เหตุการณ์ ${counts.events}, ปัญหา ${counts.problems}, ผลตรวจ ${counts.ix}`);
-  console.log('ทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง — ลบทั้งหมดได้ด้วย node seed.js --reset');
+  console.log('ทุกรายเป็นเคสสมมติ ชื่อย่อไม่ใช่ของจริง — ล้างทิ้งก่อนใส่เคสจริงด้วย node seed.js --clear');
 }

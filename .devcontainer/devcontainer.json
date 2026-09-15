@@ -2,6 +2,15 @@
   "name": "Ward",
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bookworm",
 
+  // รหัสผ่านของหอผู้ป่วย — ตั้งไว้ที่ https://github.com/settings/codespaces (Codespaces secrets)
+  // แล้วทุก codespace ของ repo นี้จะรับค่าไปเอง ไม่ต้องพิมพ์คำสั่งใด ๆ
+  // ถ้าไม่ได้ตั้ง ระบบจะใช้รหัสเริ่มต้น "ward1234" ซึ่งห้ามใช้กับข้อมูลผู้ป่วยจริง
+  "secrets": {
+    "WARD_PASSCODE": {
+      "description": "รหัสผ่านร่วมของหอผู้ป่วย ใช้ตอน login เข้าเว็บ Ward"
+    }
+  },
+
   "forwardPorts": [3000],
   "portsAttributes": {
     "3000": {

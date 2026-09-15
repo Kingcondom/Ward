@@ -930,6 +930,15 @@ function renderImportPreview(parsed) {
 }
 
 
+/* ---------------- สำรอง / นำเข้า ระดับหอผู้ป่วย ---------------- */
+// อยู่นอก drawer ของผู้ป่วย เพื่อให้กู้ข้อมูลกลับได้ตอนหอผู้ป่วยยังว่างเปล่า
+$('#btn-data').addEventListener('click', () => {
+  $('#case-preview').innerHTML = '';
+  $('#case-file').value = '';
+  $('#backup-note').textContent = '';
+  $('#modal-data').hidden = false;
+});
+
 /* ---------------- สำรองข้อมูลทั้งหมด ---------------- */
 $('#btn-backup').addEventListener('click', async () => {
   const note = $('#backup-note');
@@ -1044,7 +1053,8 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('#modal-rounds').hidden) $('#modal-rounds').hidden = true;
+  if (!$('#modal-data').hidden) $('#modal-data').hidden = true;
+  else if (!$('#modal-rounds').hidden) $('#modal-rounds').hidden = true;
   else if (!$('#modal-add').hidden) $('#modal-add').hidden = true;
   else if (!$('#drawer').hidden) closeDrawer();
 });

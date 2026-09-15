@@ -406,7 +406,7 @@ async function handleApi(req, res, url, session) {
       notes: store.listNotes(pt.id).map(({ id, patient_id, created_at, updated_at, ...n }) => n),
     }));
     const bundle = {
-      note: 'ไฟล์สำรองข้อมูล Ward — นำกลับเข้าระบบได้ที่แท็บนำเข้า',
+      note: 'ไฟล์สำรองข้อมูล Ward — นำกลับเข้าระบบได้ที่ปุ่ม “สำรอง / นำเข้า” บนหน้าแรก',
       exported_at: store.nowISO(),
       exported_by: user,
       cases,

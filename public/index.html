@@ -57,6 +57,7 @@
       <label class="check"><input type="checkbox" id="only-pending"> เฉพาะที่ยังไม่มี SOAP วันนี้</label>
       <span class="spacer"></span>
       <button id="btn-rounds" class="ghost">📋 Round วันนี้</button>
+      <button id="btn-data" class="ghost">💾 สำรอง / นำเข้า</button>
       <button id="btn-add" class="primary">+ รับผู้ป่วยใหม่</button>
     </section>
 
@@ -334,26 +335,8 @@
           <div id="import-preview"></div>
         </div>
 
-        <div class="card">
-          <h3>สำรองข้อมูล</h3>
-          <p class="muted">Codespace จะถูกลบหรือหมดอายุได้ และข้อมูลในนั้นจะหายไปด้วย
-            <b>ดาวน์โหลดไฟล์สำรองเก็บไว้ทุกครั้งที่บันทึกข้อมูลสำคัญ</b>
-            ไฟล์ที่ได้นำกลับเข้าระบบได้เลยด้วยช่องด้านล่าง</p>
-          <div class="row">
-            <button id="btn-backup" class="primary">⬇ ดาวน์โหลดข้อมูลทั้งหมด</button>
-            <span class="muted" id="backup-note"></span>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>นำเข้าเคสทั้งชุดจากไฟล์</h3>
-          <p class="muted">เลือกไฟล์ <code>.json</code> ที่เตรียมไว้ ระบบจะสร้างผู้ป่วยพร้อมประวัติ
-            problem list ผลตรวจ V/S และ lab ให้ครบในครั้งเดียว — ใช้ตอนย้ายข้อมูลเข้าระบบครั้งแรก</p>
-          <label>ไฟล์เคส (.json)
-            <input type="file" id="case-file" accept=".json,application/json">
-          </label>
-          <div id="case-preview"></div>
-        </div>
+        <p class="muted">สำรองข้อมูลทั้งหอและนำเข้าเคสทั้งชุดจากไฟล์ ย้ายไปอยู่ที่ปุ่ม
+          <b>💾 สำรอง / นำเข้า</b> บนหน้าแรกแล้ว เพื่อให้ใช้ได้แม้ยังไม่มีผู้ป่วยในระบบ</p>
       </section>
     </div>
   </aside>
@@ -392,6 +375,40 @@
       <button class="ghost" data-close>✕</button>
     </div>
     <div id="rounds-body"></div>
+  </div>
+</div>
+
+<!-- ---------- สำรอง / นำเข้า ระดับหอผู้ป่วย (ใช้ได้แม้ยังไม่มีผู้ป่วยในระบบ) ---------- -->
+<div id="modal-data" class="drawer" hidden>
+  <div class="drawer-backdrop" data-close></div>
+  <div class="card modal-card wide">
+    <div class="row">
+      <h3>💾 สำรองข้อมูล / นำเข้าเคสทั้งชุด</h3>
+      <span class="spacer"></span>
+      <button class="ghost" data-close>✕</button>
+    </div>
+
+    <section class="modal-section">
+      <h4>สำรองข้อมูล</h4>
+      <p class="muted">Codespace จะถูกลบหรือหมดอายุได้ และข้อมูลในนั้นจะหายไปด้วย
+        <b>ดาวน์โหลดไฟล์สำรองเก็บไว้ทุกครั้งที่บันทึกข้อมูลสำคัญ</b>
+        ไฟล์ที่ได้นำกลับเข้าระบบได้เลยด้วยช่องด้านล่าง</p>
+      <div class="row">
+        <button id="btn-backup" class="primary">⬇ ดาวน์โหลดข้อมูลทั้งหมด</button>
+        <span class="muted" id="backup-note"></span>
+      </div>
+    </section>
+
+    <section class="modal-section">
+      <h4>นำเข้าเคสทั้งชุดจากไฟล์</h4>
+      <p class="muted">เลือกไฟล์ <code>.json</code> ที่เตรียมไว้ ระบบจะสร้างผู้ป่วยพร้อมประวัติ
+        problem list ผลตรวจ V/S และ lab ให้ครบในครั้งเดียว — ใช้ตอนย้ายข้อมูลเข้าระบบครั้งแรก
+        หรือกู้ข้อมูลกลับจากไฟล์สำรอง</p>
+      <label>ไฟล์เคส (.json)
+        <input type="file" id="case-file" accept=".json,application/json">
+      </label>
+      <div id="case-preview"></div>
+    </section>
   </div>
 </div>
 
