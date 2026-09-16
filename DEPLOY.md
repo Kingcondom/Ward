@@ -71,6 +71,9 @@ repo นี้ตั้งค่า `.devcontainer/` ไว้แล้ว **ก
 
 **2. ยืดเวลาก่อน codespace หลับ**
 
+> เปิดลิงก์แล้ว Safari ขึ้นเป็น**ไฟล์ว่าง 0 KB** = codespace หลับอยู่ ต้องปลุกที่
+> https://github.com/codespaces ก่อน (ลิงก์พอร์ต 3000 ปลุกเองไม่ได้) เซิร์ฟเวอร์จะสตาร์ทให้เองตอนตื่น
+
 ค่าเริ่มต้นคือไม่ใช้งาน 30 นาทีแล้วหยุด ยืดได้ที่
 https://github.com/settings/codespaces → **Default idle timeout** → ตั้งเป็น 240 นาที
 
