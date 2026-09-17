@@ -137,7 +137,12 @@ function connectStream() {
     const { patient, by } = JSON.parse(e.data);
     upsertPatient(patient);
     render();
-    if (state.openId === patient.id) fillPatientForm(patient);
+    if (state.openId === patient.id) {
+      Object.assign(state.patient ?? {}, patient);
+      fillPatientForm(patient);
+      // หน้าเต็มจอที่เปิดค้างอยู่ต้องไม่ค้างข้อมูลเก่า (ยกเว้นกำลังพิมพ์แก้อยู่ จะไม่ทับของที่พิมพ์)
+      if (!$('#modal-history').hidden && $('#hx-save').hidden) hxRead(state.patient);
+    }
     if (touched(by)) toast(`${by} แก้ข้อมูลเตียง ${patient.bed}`);
   });
 
@@ -935,7 +940,19 @@ function renderImportPreview(parsed) {
 /* ---------------- ประวัติแรกรับแบบเต็มจอ ----------------
    ช่องกรอกในฟอร์มเตี้ยเกินกว่าจะอ่าน PI ยาว ๆ ตอน round ได้ หน้านี้จึงแสดงข้อความเต็ม
    ตัวใหญ่ บรรทัดห่าง และแก้ไขได้ในที่เดียวกันโดยไม่ต้องกลับไปที่ฟอร์ม */
+// ทั้งกล่อง "ข้อมูลผู้ป่วย" ไม่ใช่แค่ประวัติ — Diagnosis กับแผนการรักษาก็ยาวจนอ่านในช่องเล็กไม่ไหว
+const HX_IDENT = [
+  ['bed', 'เตียง', 'text'],
+  ['initials', 'ชื่อย่อ', 'text'],
+  ['age', 'อายุ', 'text'],
+  ['sex', 'เพศ', 'sex'],
+  ['admitted_at', 'วันที่ Admit', 'date'],
+  ['allergy', 'แพ้ยา / Allergy', 'text'],
+];
+
 const HX_FIELDS = [
+  ['diagnosis', 'Diagnosis'],
+  ['treatment', 'การรักษา / Treatment'],
   ['underlying', 'โรคประจำตัว / Underlying disease'],
   ['chief_complaint', 'อาการสำคัญ / Chief complaint'],
   ['present_illness', 'ประวัติปัจจุบัน / Present illness'],
@@ -951,7 +968,16 @@ function hxSetSize(rem) {
 }
 
 function hxRead(p) {
-  $('#hx-body').innerHTML = HX_FIELDS.map(([key, label]) => {
+  const ident = [
+    p.age, p.sex,
+    p.admitted_at && `admit ${p.admitted_at}`,
+    p.status !== 'active' && `D/C ${p.discharged_at ?? ''}`,
+  ].filter(Boolean).join(' · ');
+
+  $('#hx-body').innerHTML = `<section class="hx-ident">
+      <h4>ข้อมูลผู้ป่วย</h4>
+      <p>${esc(`เตียง ${p.bed} · ${p.initials}${ident ? ` · ${ident}` : ''}`)}</p>
+    </section>` + HX_FIELDS.map(([key, label]) => {
     const value = String(p[key] ?? '').trim();
     return `<section>
       <h4>${esc(label)}</h4>
@@ -961,9 +987,21 @@ function hxRead(p) {
 }
 
 function hxEdit(p) {
-  $('#hx-body').innerHTML = HX_FIELDS.map(([key, label]) => `<section>
-      <h4><label for="hx-${key}">${esc(label)}</label></h4>
-      <textarea id="hx-${key}" name="${key}" rows="2">${esc(p[key] ?? '')}</textarea>
+  const identInputs = HX_IDENT.map(([key, label, type]) => {
+    const value = esc(p[key] ?? '');
+    if (type === 'sex') {
+      const opt = (v, text) => `<option value="${v}"${(p.sex ?? '') === v ? ' selected' : ''}>${text}</option>`;
+      return `<label>${esc(label)}<select id="hxf-${key}" name="${key}">${opt('', '–')}${opt('ชาย', 'ชาย')}${opt('หญิง', 'หญิง')}</select></label>`;
+    }
+    return `<label>${esc(label)}<input id="hxf-${key}" name="${key}" type="${type}" value="${value}"></label>`;
+  }).join('');
+
+  $('#hx-body').innerHTML = `<section class="hx-ident">
+      <h4>ข้อมูลผู้ป่วย</h4>
+      <div class="grid">${identInputs}</div>
+    </section>` + HX_FIELDS.map(([key, label]) => `<section>
+      <h4><label for="hxf-${key}">${esc(label)}</label></h4>
+      <textarea id="hxf-${key}" name="${key}" rows="2">${esc(p[key] ?? '')}</textarea>
     </section>`).join('');
   // ขยายช่องให้พอดีกับข้อความที่มีอยู่ จะได้ไม่ต้องเลื่อนในช่องเล็ก ๆ อีก
   // หัวข้อสั้น ๆ อย่าง CC ก็ไม่กินพื้นที่เกินจำเป็น
@@ -1015,7 +1053,11 @@ function hxCurrentSize() {
 $('#hx-save').addEventListener('click', async (e) => {
   const btn = e.target;
   const body = {};
-  for (const [key] of HX_FIELDS) body[key] = $(`#hx-${key}`).value.trim();
+  for (const [key] of [...HX_IDENT, ...HX_FIELDS]) body[key] = $(`#hxf-${key}`).value.trim();
+  if (!body.bed || !body.initials) {
+    toast('ต้องมีเตียงและชื่อย่อ');
+    return;
+  }
   btn.disabled = true;
   try {
     await api('PATCH', `/api/patients/${state.openId}`, body);
@@ -1023,7 +1065,7 @@ $('#hx-save').addEventListener('click', async (e) => {
     fillPatientForm(state.patient);   // ให้ช่องในฟอร์มตรงกัน
     hxRead(state.patient);
     hxMode(false);
-    toast('บันทึกประวัติแล้ว');
+    toast('บันทึกข้อมูลผู้ป่วยแล้ว');
   } catch (ex) {
     toast(ex.message);
   } finally {

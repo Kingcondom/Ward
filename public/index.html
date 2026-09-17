@@ -93,7 +93,11 @@
       <!-- ---- ข้อมูลผู้ป่วย ---- -->
       <section class="panel" data-panel="info">
         <form id="patient-form" class="card">
-          <h3>ข้อมูลผู้ป่วย</h3>
+          <div class="row card-head">
+            <h3>ข้อมูลผู้ป่วย</h3>
+            <span class="spacer"></span>
+            <button type="button" id="btn-history" class="ghost">⤢ เปิดเต็มจอ</button>
+          </div>
           <div class="grid">
             <label>เตียง<input name="bed" required></label>
             <label>ชื่อย่อ<input name="initials" required placeholder="ส.ส."></label>
@@ -107,12 +111,8 @@
           <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
           <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
 
-          <button type="button" id="btn-history" class="hx-open">
-            📖 อ่านประวัติเต็มจอ <span class="muted">U/D · CC · PI · PH · PE</span>
-          </button>
-
           <details class="subsection">
-            <summary>ประวัติแรกรับ (U/D, CC, PI, PE) — แก้ไขในช่องเล็ก</summary>
+            <summary>ประวัติแรกรับ (U/D, CC, PI, PE)</summary>
             <label>โรคประจำตัว / Underlying disease
               <textarea name="underlying" rows="3" placeholder="# HT&#10;# DLP&#10;# CKD stage 4"></textarea>
             </label>
