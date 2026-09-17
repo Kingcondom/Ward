@@ -107,8 +107,12 @@
           <label>การรักษา / Treatment<textarea name="treatment" rows="3"></textarea></label>
           <label>แพ้ยา / Allergy<input name="allergy" placeholder="NKA"></label>
 
+          <button type="button" id="btn-history" class="hx-open">
+            📖 อ่านประวัติเต็มจอ <span class="muted">U/D · CC · PI · PH · PE</span>
+          </button>
+
           <details class="subsection">
-            <summary>ประวัติแรกรับ (U/D, CC, PI, PE)</summary>
+            <summary>ประวัติแรกรับ (U/D, CC, PI, PE) — แก้ไขในช่องเล็ก</summary>
             <label>โรคประจำตัว / Underlying disease
               <textarea name="underlying" rows="3" placeholder="# HT&#10;# DLP&#10;# CKD stage 4"></textarea>
             </label>
@@ -409,6 +413,29 @@
       </label>
       <div id="case-preview"></div>
     </section>
+  </div>
+</div>
+
+<!-- ---------- ประวัติแรกรับแบบเต็มจอ (อ่านง่าย ตัวใหญ่) ---------- -->
+<div id="modal-history" class="drawer" hidden>
+  <div class="fullscreen-card">
+    <header class="hx-head">
+      <div class="hx-who">
+        <span class="bed-badge" id="hx-bed"></span>
+        <b id="hx-title"></b>
+        <span class="muted" id="hx-sub"></span>
+      </div>
+      <div class="hx-tools">
+        <button type="button" class="ghost" id="hx-smaller" title="ตัวอักษรเล็กลง">ก−</button>
+        <button type="button" class="ghost" id="hx-bigger" title="ตัวอักษรใหญ่ขึ้น">ก+</button>
+        <button type="button" class="ghost" id="hx-edit">✏️ แก้ไข</button>
+        <button type="button" class="primary" id="hx-save" hidden>บันทึก</button>
+        <button type="button" class="ghost" id="hx-cancel" hidden>ยกเลิก</button>
+        <button type="button" class="ghost" data-close>✕ ปิด</button>
+      </div>
+    </header>
+    <p class="hx-allergy" id="hx-allergy" hidden></p>
+    <div class="hx-doc" id="hx-body"></div>
   </div>
 </div>
 

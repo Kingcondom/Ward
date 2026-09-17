@@ -7,6 +7,7 @@ const state = {
   user: null,
   patients: [],
   openId: null,       // ผู้ป่วยที่เปิด drawer อยู่
+  patient: null,      // ข้อมูลผู้ป่วยที่เปิดอยู่ (ใช้กับหน้าประวัติเต็มจอ)
   notes: [],
   editingNoteId: null,
   vitals: [],
@@ -290,6 +291,7 @@ function fillPatientForm(p) {
 async function openPatient(id, { silent = false } = {}) {
   const data = await api('GET', `/api/patients/${id}`);
   state.openId = id;
+  state.patient = data;
   state.notes = data.notes;
   fillPatientForm(data);
   renderNotes();
@@ -930,6 +932,105 @@ function renderImportPreview(parsed) {
 }
 
 
+/* ---------------- ประวัติแรกรับแบบเต็มจอ ----------------
+   ช่องกรอกในฟอร์มเตี้ยเกินกว่าจะอ่าน PI ยาว ๆ ตอน round ได้ หน้านี้จึงแสดงข้อความเต็ม
+   ตัวใหญ่ บรรทัดห่าง และแก้ไขได้ในที่เดียวกันโดยไม่ต้องกลับไปที่ฟอร์ม */
+const HX_FIELDS = [
+  ['underlying', 'โรคประจำตัว / Underlying disease'],
+  ['chief_complaint', 'อาการสำคัญ / Chief complaint'],
+  ['present_illness', 'ประวัติปัจจุบัน / Present illness'],
+  ['past_history', 'ประวัติอดีต / Past history'],
+  ['physical_exam', 'ตรวจร่างกายแรกรับ / Physical exam'],
+];
+
+function hxSetSize(rem) {
+  const size = Math.min(1.6, Math.max(0.9, rem));
+  document.documentElement.style.setProperty('--hx-size', `${size}rem`);
+  try { localStorage.setItem('ward-hx-size', String(size)); } catch { /* โหมดส่วนตัวก็ไม่เป็นไร */ }
+  return size;
+}
+
+function hxRead(p) {
+  $('#hx-body').innerHTML = HX_FIELDS.map(([key, label]) => {
+    const value = String(p[key] ?? '').trim();
+    return `<section>
+      <h4>${esc(label)}</h4>
+      ${value ? `<p>${esc(value)}</p>` : '<p class="empty">ยังไม่ได้บันทึก</p>'}
+    </section>`;
+  }).join('');
+}
+
+function hxEdit(p) {
+  $('#hx-body').innerHTML = HX_FIELDS.map(([key, label]) => `<section>
+      <h4><label for="hx-${key}">${esc(label)}</label></h4>
+      <textarea id="hx-${key}" name="${key}" rows="2">${esc(p[key] ?? '')}</textarea>
+    </section>`).join('');
+  // ขยายช่องให้พอดีกับข้อความที่มีอยู่ จะได้ไม่ต้องเลื่อนในช่องเล็ก ๆ อีก
+  // หัวข้อสั้น ๆ อย่าง CC ก็ไม่กินพื้นที่เกินจำเป็น
+  const fit = (ta) => {
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.max(ta.scrollHeight, 72)}px`;
+  };
+  for (const ta of $('#hx-body').querySelectorAll('textarea')) {
+    fit(ta);
+    ta.addEventListener('input', () => fit(ta));
+  }
+}
+
+function hxMode(editing) {
+  $('#hx-edit').hidden = editing;
+  $('#hx-save').hidden = !editing;
+  $('#hx-cancel').hidden = !editing;
+}
+
+function openHistory() {
+  const p = state.patient;
+  if (!p) return;
+  $('#hx-bed').textContent = `เตียง ${p.bed}`;
+  $('#hx-title').textContent = p.initials;
+  $('#hx-sub').textContent = [p.age, p.sex, p.admitted_at && `admit ${p.admitted_at}`,
+    p.status !== 'active' && `D/C ${p.discharged_at ?? ''}`].filter(Boolean).join(' · ');
+
+  const allergy = String(p.allergy ?? '').trim();
+  const noAllergy = /^(nka|nkda|ปฏิเสธ|ไม่มี|-|—)/i.test(allergy);
+  $('#hx-allergy').hidden = !allergy || noAllergy;
+  $('#hx-allergy').textContent = allergy ? `⚠️ แพ้ยา: ${allergy}` : '';
+
+  hxRead(p);
+  hxMode(false);
+  $('#modal-history').hidden = false;
+}
+
+$('#btn-history').addEventListener('click', openHistory);
+$('#hx-edit').addEventListener('click', () => { hxEdit(state.patient); hxMode(true); });
+$('#hx-cancel').addEventListener('click', () => { hxRead(state.patient); hxMode(false); });
+$('#hx-bigger').addEventListener('click', () => hxSetSize(hxCurrentSize() + 0.1));
+$('#hx-smaller').addEventListener('click', () => hxSetSize(hxCurrentSize() - 0.1));
+
+function hxCurrentSize() {
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hx-size'));
+  return Number.isFinite(v) ? v : 1.08;
+}
+
+$('#hx-save').addEventListener('click', async (e) => {
+  const btn = e.target;
+  const body = {};
+  for (const [key] of HX_FIELDS) body[key] = $(`#hx-${key}`).value.trim();
+  btn.disabled = true;
+  try {
+    await api('PATCH', `/api/patients/${state.openId}`, body);
+    Object.assign(state.patient, body);
+    fillPatientForm(state.patient);   // ให้ช่องในฟอร์มตรงกัน
+    hxRead(state.patient);
+    hxMode(false);
+    toast('บันทึกประวัติแล้ว');
+  } catch (ex) {
+    toast(ex.message);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 /* ---------------- สำรอง / นำเข้า ระดับหอผู้ป่วย ---------------- */
 // อยู่นอก drawer ของผู้ป่วย เพื่อให้กู้ข้อมูลกลับได้ตอนหอผู้ป่วยยังว่างเปล่า
 $('#btn-data').addEventListener('click', () => {
@@ -1053,13 +1154,21 @@ document.addEventListener('click', (e) => {
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('#modal-data').hidden) $('#modal-data').hidden = true;
+  if (!$('#modal-history').hidden) $('#modal-history').hidden = true;
+  else if (!$('#modal-data').hidden) $('#modal-data').hidden = true;
   else if (!$('#modal-rounds').hidden) $('#modal-rounds').hidden = true;
   else if (!$('#modal-add').hidden) $('#modal-add').hidden = true;
   else if (!$('#drawer').hidden) closeDrawer();
 });
 
 /* ---------------- boot ---------------- */
+(function restoreHxSize() {
+  try {
+    const saved = parseFloat(localStorage.getItem('ward-hx-size'));
+    if (Number.isFinite(saved)) hxSetSize(saved);
+  } catch { /* อ่านไม่ได้ก็ใช้ค่าเริ่มต้น */ }
+})();
+
 (async function boot() {
   try {
     const me = await fetch('/api/me');

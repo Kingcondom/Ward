@@ -127,6 +127,51 @@ main {
 .drawer-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 1rem 1rem max(1rem, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 1rem; }
 .modal-card { position: relative; margin: auto; width: min(520px, 94%); max-height: 90vh; overflow-y: auto; }
 .modal-card.wide { width: min(900px, 96%); }
+
+/* ---------- ประวัติแรกรับแบบเต็มจอ ----------
+   ตั้งใจให้อ่านง่ายตอน round: ตัวใหญ่ บรรทัดห่าง ความกว้างจำกัดไม่ให้สายตาวิ่งไกล
+   ขนาดตัวอักษรปรับได้ด้วยปุ่ม ก− / ก+ (จำค่าไว้ใน localStorage) */
+.hx-open {
+  width: 100%; margin: .2rem 0 .6rem; padding: .7rem .9rem; text-align: left;
+  border: 1px dashed var(--line); border-radius: 10px; background: var(--bg);
+  color: var(--fg); font: inherit; font-weight: 600; cursor: pointer;
+}
+.hx-open:hover { border-color: var(--accent); color: var(--accent); }
+.hx-open .muted { font-weight: 400; }
+
+.fullscreen-card {
+  position: relative; width: 100%; height: 100%; overflow-y: auto;
+  -webkit-overflow-scrolling: touch; background: var(--card);
+  display: flex; flex-direction: column;
+}
+.hx-head {
+  position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: .5rem 1rem;
+  align-items: center; justify-content: space-between;
+  padding: max(.9rem, env(safe-area-inset-top)) 1rem .9rem;
+  background: var(--card); border-bottom: 1px solid var(--line);
+}
+.hx-who { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: 1.05rem; }
+.hx-tools { display: flex; gap: .4rem; flex-wrap: wrap; }
+.hx-allergy {
+  margin: 0; padding: .6rem 1rem; background: rgba(220, 38, 38, .08);
+  border-bottom: 1px solid var(--line); color: var(--danger); font-weight: 600;
+}
+.hx-doc {
+  flex: 1 1 auto; padding: 1.2rem 1rem max(2.5rem, env(safe-area-inset-bottom));
+  font-size: var(--hx-size, 1.08rem); line-height: 1.8;
+}
+.hx-doc > section { max-width: 74ch; margin: 0 auto 1.8rem; }
+.hx-doc h4 {
+  margin: 0 0 .5rem; font-size: .82em; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: .3rem;
+}
+.hx-doc p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hx-doc p.empty { color: var(--muted); font-style: italic; }
+.hx-doc textarea {
+  width: 100%; min-height: 9em; font: inherit; line-height: 1.7;
+  padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--bg); color: var(--fg); resize: vertical;
+}
 /* หัวข้อย่อยใน modal เช่น สำรองข้อมูล / นำเข้าเคส — คั่นด้วยเส้นประ ไม่ซ้อนกล่องในกล่อง */
 .modal-section { border-top: 1px dashed var(--line); padding-top: .9rem; margin-top: .9rem; }
 .modal-section h4 { margin: 0 0 .3rem; font-size: 1rem; }
