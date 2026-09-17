@@ -1,0 +1,9 @@
+# สำรองฐานข้อมูลอัตโนมัติ (ใช้คู่กับ ward-backup.timer)
+[Unit]
+Description=Ward — สำรองฐานข้อมูลประจำวัน
+
+[Service]
+Type=oneshot
+WorkingDirectory=__WARD_DIR__
+EnvironmentFile=/etc/ward.env
+ExecStart=__NODE__ backup.js

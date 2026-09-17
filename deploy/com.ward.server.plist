@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS: รัน Ward ค้างไว้ตลอดและเปิดเองทุกครั้งที่เปิดเครื่อง
+     1. แก้ __WARD_DIR__ เป็นที่อยู่โฟลเดอร์ Ward และ __NODE__ เป็นผลของ `which node`
+     2. แก้ ตั้งรหัสผ่านตรง WARD_PASSCODE
+     3. cp deploy/com.ward.server.plist ~/Library/LaunchAgents/
+        launchctl load -w ~/Library/LaunchAgents/com.ward.server.plist -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.ward.server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>__WARD_DIR__/server.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>__WARD_DIR__</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>WARD_PASSCODE</key><string>ตั้งรหัสผ่านตรงนี้</string>
+    <key>PORT</key><string>3000</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>__WARD_DIR__/data/ward.log</string>
+  <key>StandardErrorPath</key><string>__WARD_DIR__/data/ward.log</string>
+</dict>
+</plist>

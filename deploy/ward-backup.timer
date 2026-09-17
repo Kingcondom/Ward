@@ -1,0 +1,10 @@
+# สำรองทุกวันตี 3 (ถ้าเครื่องปิดอยู่ตอนถึงเวลา จะสำรองให้ทันทีที่เปิดเครื่อง)
+[Unit]
+Description=Ward — ตั้งเวลาสำรองฐานข้อมูลประจำวัน
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -11,6 +11,7 @@
     "start": "node server.js",
     "seed": "node seed.js",
     "seed:reset": "node seed.js --reset",
-    "clear": "node seed.js --clear"
+    "clear": "node seed.js --clear",
+    "backup": "node backup.js"
   }
 }

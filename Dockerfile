@@ -3,7 +3,8 @@ FROM node:22-alpine
 
 WORKDIR /app
 COPY package.json ./
-COPY server.js db.js ./
+# ต้องครบทุกไฟล์ที่ server.js เรียกใช้ ไม่งั้น container จะตายตั้งแต่สตาร์ท
+COPY server.js db.js parse.js seed.js backup.js ./
 COPY public ./public
 
 # เก็บฐานข้อมูลไว้นอก image เพื่อให้ข้อมูลอยู่รอดตอน redeploy
