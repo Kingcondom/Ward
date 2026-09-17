@@ -9,6 +9,12 @@ primary_region = "sin"   # สิงคโปร์ — ใกล้ไทยท
 [env]
   PORT = "3000"
   WARD_DB = "/data/ward.db"
+  # เครื่องบนคลาวด์ตั้งเวลาเป็น UTC ถ้าไม่ตั้งอันนี้ ช่วงเที่ยงคืน-7 โมงเช้าบ้านเรา
+  # ระบบจะนับว่ายังเป็นเมื่อวาน (เวรดึกบันทึก SOAP แล้ววันที่เพี้ยน)
+  TZ = "Asia/Bangkok"
+  # สำรองฐานข้อมูลอัตโนมัติทุกวันตี 3 ลงใน volume (Fly ไม่มี cron ให้ตั้ง)
+  WARD_AUTO_BACKUP = "03:00"
+  WARD_BACKUP_DIR = "/data/backups"
 
 [[mounts]]
   source = "ward_data"

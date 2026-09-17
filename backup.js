@@ -17,18 +17,18 @@ const OUT_DIR = process.argv[2] || process.env.WARD_BACKUP_DIR
   || path.join(path.dirname(DB_PATH), 'backups');
 const KEEP = Number(process.env.WARD_BACKUP_KEEP || 14);
 
-async function main() {
-  if (!fs.existsSync(DB_PATH)) {
-    console.error(`ไม่พบฐานข้อมูลที่ ${DB_PATH} — ตั้ง WARD_DB ให้ตรงกับที่เซิร์ฟเวอร์ใช้`);
-    process.exit(1);
+// เซิร์ฟเวอร์เรียกฟังก์ชันนี้เองได้ (ใช้ตอน deploy บนคลาวด์ที่ไม่มี cron ให้ตั้ง)
+async function runBackup({ dbPath = DB_PATH, outDir = OUT_DIR, keep = KEEP, log = console.log } = {}) {
+  if (!fs.existsSync(dbPath)) {
+    throw new Error(`ไม่พบฐานข้อมูลที่ ${dbPath} — ตั้ง WARD_DB ให้ตรงกับที่เซิร์ฟเวอร์ใช้`);
   }
-  fs.mkdirSync(OUT_DIR, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
 
   // ชื่อไฟล์เรียงตามเวลาได้เอง: ward-2026-09-17-03-00-00.db
   const stamp = new Date().toLocaleString('sv-SE').replace(/[: ]/g, '-');
-  const target = path.join(OUT_DIR, `ward-${stamp}.db`);
+  const target = path.join(outDir, `ward-${stamp}.db`);
 
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSync(dbPath);
   try {
     await backup(db, target);
   } finally {
@@ -36,20 +36,25 @@ async function main() {
   }
 
   const size = (fs.statSync(target).size / 1024).toFixed(0);
-  console.log(`สำรองแล้ว: ${target} (${size} KB)`);
+  log(`สำรองแล้ว: ${target} (${size} KB)`);
 
   // ลบไฟล์เก่าที่เกินจำนวนที่เก็บไว้
-  const old = fs.readdirSync(OUT_DIR)
+  const old = fs.readdirSync(outDir)
     .filter((f) => /^ward-.*\.db$/.test(f))
     .sort()
-    .slice(0, -KEEP);
+    .slice(0, -keep);
   for (const f of old) {
-    fs.rmSync(path.join(OUT_DIR, f));
-    console.log(`ลบไฟล์เก่า: ${f}`);
+    fs.rmSync(path.join(outDir, f));
+    log(`ลบไฟล์เก่า: ${f}`);
   }
+  return target;
 }
 
-main().catch((err) => {
-  console.error('สำรองข้อมูลไม่สำเร็จ:', err.message);
-  process.exit(1);
-});
+module.exports = { runBackup };
+
+if (require.main === module) {
+  runBackup().catch((err) => {
+    console.error('สำรองข้อมูลไม่สำเร็จ:', err.message);
+    process.exit(1);
+  });
+}

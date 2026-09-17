@@ -6,6 +6,7 @@ const crypto = require('node:crypto');
 const store = require('./db');
 const { execFileSync } = require('node:child_process');
 const { parseClinicalText, VITAL_RANGES, LAB_RANGES } = require('./parse');
+const { runBackup } = require('./backup');
 
 const PORT = Number(process.env.PORT || 3000);
 const PASSCODE = process.env.WARD_PASSCODE || 'ward1234';
@@ -257,7 +258,7 @@ async function handleApi(req, res, url, session) {
 
   // รายงาน SOAP ของวันนั้น (ทุกเตียง)
   if (p === '/api/rounds' && method === 'GET') {
-    const date = url.searchParams.get('date') || store.nowISO().slice(0, 10);
+    const date = url.searchParams.get('date') || store.today();
     return json(res, 200, { date, notes: store.notesForDate(date) });
   }
 
@@ -412,7 +413,7 @@ async function handleApi(req, res, url, session) {
       cases,
     };
     const data = JSON.stringify(bundle, null, 2);
-    const stamp = store.nowISO().slice(0, 10);
+    const stamp = store.today();
     res.writeHead(200, {
       'content-type': 'application/json; charset=utf-8',
       'content-disposition': `attachment; filename="ward-backup-${stamp}.json"`,
@@ -508,7 +509,7 @@ async function handleApi(req, res, url, session) {
     }
     if (vitalsSaved || labsSaved) {
       store.createEvent(patientId, {
-        occurred_at: (body.collected_at || body.measured_at || store.nowISO()).slice(0, 10),
+        occurred_at: (body.collected_at || body.measured_at || store.today()).slice(0, 10),
         kind: 'import',
         title: 'นำเข้าข้อมูลจากข้อความโรงพยาบาล',
         detail: `V/S ${vitalsSaved} ชุด, Lab ${labsSaved} ค่า`,
@@ -521,6 +522,39 @@ async function handleApi(req, res, url, session) {
   }
 
   return json(res, 404, { error: 'not found' });
+}
+
+/* ---------------- สำรองข้อมูลอัตโนมัติในตัว ----------------
+   ใช้ตอน deploy บนคลาวด์ (Fly.io ไม่มี cron ให้ตั้ง) — เปิดด้วย WARD_AUTO_BACKUP="03:00"
+   บนเครื่องที่มี systemd ไม่ต้องใช้ ตัวติดตั้งตั้ง timer ให้แล้ว */
+function scheduleDailyBackup(hhmm) {
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(hhmm.trim());
+  if (!m) {
+    console.error(`WARD_AUTO_BACKUP="${hhmm}" ไม่ถูกรูปแบบ (ต้องเป็น HH:MM) — ข้ามการสำรองอัตโนมัติ`);
+    return;
+  }
+  const [hour, minute] = [Number(m[1]), Number(m[2])];
+
+  const msUntilNextRun = () => {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(hour, minute, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next - now;
+  };
+
+  const run = async () => {
+    try {
+      await runBackup({ log: (line) => console.log(`[สำรองอัตโนมัติ] ${line}`) });
+    } catch (err) {
+      console.error('[สำรองอัตโนมัติ] ไม่สำเร็จ:', err.message);
+    }
+    // ตั้งรอบถัดไปใหม่ทุกครั้ง ไม่ใช้ setInterval เพราะเวลาจะเลื่อนสะสม
+    setTimeout(run, msUntilNextRun()).unref();
+  };
+
+  setTimeout(run, msUntilNextRun()).unref();
+  console.log(`สำรองข้อมูลอัตโนมัติทุกวันเวลา ${hhmm} (เวลาของเครื่องนี้)`);
 }
 
 /* ---------------- server ---------------- */
@@ -553,6 +587,7 @@ server.listen(PORT, () => {
   console.log(`เวอร์ชันโค้ด: ${BUILD.commit ?? 'ไม่ทราบ'}${BUILD.date ? ` (${BUILD.date})` : ''}`);
   console.log(`ฐานข้อมูล: ${store.DB_PATH}`);
   if (!process.env.WARD_PASSCODE) console.log('⚠  ใช้รหัสผ่านเริ่มต้น "ward1234" — ตั้ง WARD_PASSCODE ก่อนใช้งานจริง');
+  if (process.env.WARD_AUTO_BACKUP) scheduleDailyBackup(process.env.WARD_AUTO_BACKUP);
 });
 
 module.exports = server;

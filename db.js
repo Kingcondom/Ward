@@ -176,6 +176,11 @@ function migrate() {
 migrate();
 
 const nowISO = () => new Date().toISOString();
+
+// "วันนี้" ต้องอิงเวลาท้องถิ่นของเครื่องที่รัน ไม่ใช่ UTC
+// ถ้าใช้ UTC ช่วงเที่ยงคืนถึง 7 โมงเช้าบ้านเรา ระบบจะยังนับเป็นเมื่อวาน (เวรดึกบันทึกแล้ววันที่เพี้ยน)
+// บนคลาวด์ให้ตั้ง TZ=Asia/Bangkok ไว้ด้วย
+const today = () => new Date().toLocaleDateString('sv-SE');
 const newId = () => crypto.randomUUID();
 
 /* ---------- patients ---------- */
@@ -224,7 +229,7 @@ function createPatient(input, user) {
     input.treatment ?? null,
     input.allergy ?? null,
     'active',
-    input.admitted_at || ts.slice(0, 10),
+    input.admitted_at || today(),
     ts, ts, user ?? null,
   );
   return getPatient(id);
@@ -251,7 +256,7 @@ function updatePatient(id, input, user) {
 function dischargePatient(id, user) {
   const ts = nowISO();
   db.prepare("UPDATE patients SET status='discharged', discharged_at=?, updated_at=?, updated_by=? WHERE id=?")
-    .run(ts.slice(0, 10), ts, user ?? null, id);
+    .run(today(), ts, user ?? null, id);
   return getPatient(id);
 }
 
@@ -284,7 +289,7 @@ function createNote(patientId, input, user) {
     (id, patient_id, note_date, round, subjective, objective, assessment, plan, author, created_at, updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
     id, patientId,
-    input.note_date || ts.slice(0, 10),
+    input.note_date || today(),
     input.round ?? null,
     input.subjective ?? null,
     input.objective ?? null,
@@ -367,7 +372,7 @@ function createLab(patientId, input, user, source = 'manual') {
   const id = newId();
   db.prepare(`INSERT INTO labs (id, patient_id, collected_at, name, value, unit, raw, author, source, created_at)
     VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
-    id, patientId, input.collected_at || ts.slice(0, 10),
+    id, patientId, input.collected_at || today(),
     String(input.name ?? '').trim(),
     input.value === '' || input.value === null || input.value === undefined ? null : Number(input.value),
     input.unit ?? null, input.raw ?? null, input.author || user || null, source, ts,
@@ -393,7 +398,7 @@ function createEvent(patientId, input, user, auto = 0) {
   const id = newId();
   db.prepare(`INSERT INTO events (id, patient_id, occurred_at, kind, title, detail, author, auto, created_at)
     VALUES (?,?,?,?,?,?,?,?,?)`).run(
-    id, patientId, input.occurred_at || ts.slice(0, 10),
+    id, patientId, input.occurred_at || today(),
     input.kind || 'note', String(input.title ?? '').trim() || 'บันทึกเหตุการณ์',
     input.detail ?? null, input.author || user || null, auto, ts,
   );
@@ -423,7 +428,7 @@ function createProblem(patientId, input, user) {
     (id, patient_id, title, status, detail, plan, started_at, position, author, created_at, updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
     id, patientId, String(input.title ?? '').trim(), input.status || 'active',
-    input.detail ?? null, input.plan ?? null, input.started_at || ts.slice(0, 10),
+    input.detail ?? null, input.plan ?? null, input.started_at || today(),
     next, input.author || user || null, ts, ts,
   );
   return db.prepare('SELECT * FROM problems WHERE id = ?').get(id);
@@ -443,7 +448,7 @@ function updateProblem(id, input, user) {
   // ปิดปัญหาเมื่อไหร่ ให้บันทึกวันที่ปิดไว้ด้วย และเคลียร์ถ้ากลับมา active
   if (input.status === 'resolved' && current.status !== 'resolved') {
     sets.push('resolved_at = ?');
-    values.push(nowISO().slice(0, 10));
+    values.push(today());
   } else if (input.status && input.status !== 'resolved') {
     sets.push('resolved_at = NULL');
   }
@@ -472,7 +477,7 @@ function createInvestigation(patientId, input, user) {
   db.prepare(`INSERT INTO investigations
     (id, patient_id, performed_at, category, name, status, result, organism, sensitivity, author, created_at, updated_at)
     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
-    id, patientId, input.performed_at || ts.slice(0, 10),
+    id, patientId, input.performed_at || today(),
     input.category || 'imaging', String(input.name ?? '').trim(),
     input.status || 'final', input.result ?? null,
     input.organism ?? null, input.sensitivity ?? null,
@@ -527,7 +532,7 @@ function timeline(patientId) {
 }
 
 module.exports = {
-  db, DB_PATH, nowISO,
+  db, DB_PATH, nowISO, today,
   listPatients, getPatient, createPatient, updatePatient, dischargePatient, readmitPatient, deletePatient,
   listNotes, getNote, createNote, updateNote, deleteNote, notesForDate,
   listVitals, createVitals, deleteVitals,
